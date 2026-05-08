@@ -12,12 +12,20 @@ class RendicionItem {
   /// Estado: 'borrador', 'enviado', 'aprobado', 'rechazado'
   String status;
 
+  /// Datos de factura
+  String invoiceNumber;
+  String supplier;
+  String? imageBase64; // Imagen en base64
+
   RendicionItem(
     this.date,
     this.description,
     this.amount, {
     this.type = 'otros',
     this.status = 'borrador',
+    this.invoiceNumber = '',
+    this.supplier = '',
+    this.imageBase64,
   });
 
   Map<String, dynamic> toJson() => {
@@ -26,6 +34,9 @@ class RendicionItem {
     'amount': amount,
     'type': type,
     'status': status,
+    'invoiceNumber': invoiceNumber,
+    'supplier': supplier,
+    'imageBase64': imageBase64,
   };
 
   static RendicionItem fromJson(Map<String, dynamic> json) => RendicionItem(
@@ -34,6 +45,9 @@ class RendicionItem {
     (json['amount'] as num).toDouble(),
     type: json['type'] as String? ?? 'otros',
     status: json['status'] as String? ?? 'borrador',
+    invoiceNumber: json['invoiceNumber'] as String? ?? '',
+    supplier: json['supplier'] as String? ?? '',
+    imageBase64: json['imageBase64'] as String?,
   );
 }
 
@@ -70,7 +84,10 @@ Future<Database> _openDb() async {
         description TEXT,
         amount REAL,
         type TEXT,
-        status TEXT
+        status TEXT,
+        invoiceNumber TEXT,
+        supplier TEXT,
+        imageBase64 TEXT
       )
     ''');
     },
@@ -98,6 +115,8 @@ Future<void> loadRendiciones() async {
         120.50,
         type: 'asi',
         status: 'aprobado',
+        invoiceNumber: '001-001-000123456',
+        supplier: 'Ferretería XYZ',
       ),
       RendicionItem(
         DateTime.now().subtract(const Duration(days: 1)),
@@ -105,6 +124,8 @@ Future<void> loadRendiciones() async {
         45.00,
         type: 'viaticos',
         status: 'borrador',
+        invoiceNumber: '0010-000654321',
+        supplier: 'Taxi Plus',
       ),
     ];
     await saveRendiciones();
