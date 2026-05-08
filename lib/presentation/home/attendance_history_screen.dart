@@ -1,0 +1,143 @@
+import 'package:flutter/material.dart';
+import 'package:dev_mobile/core/mock_data.dart';
+import 'package:dev_mobile/presentation/home/asistencia_detail_screen.dart';
+
+class AttendanceHistoryScreen extends StatefulWidget {
+  const AttendanceHistoryScreen({super.key});
+
+  @override
+  State<AttendanceHistoryScreen> createState() =>
+      _AttendanceHistoryScreenState();
+}
+
+class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
+  DateTime? _selectedDate;
+  String? _selectedProject;
+  List<AsistenciaItem> _results = [];
+  bool _loading = false;
+
+  Future<void> _search() async {
+    setState(() => _loading = true);
+    final list = await getAsistenciasFiltered(
+      date: _selectedDate,
+      project: _selectedProject,
+    );
+    setState(() {
+      _results = list;
+      _loading = false;
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadAsistencias().then((_) async {
+      await loadProjectsAndWorkers();
+      setState(() {});
+      await _search();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Historial de Asistencias')),
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _selectedDate ?? DateTime.now(),
+                        firstDate: DateTime.now().subtract(
+                          const Duration(days: 365),
+                        ),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null) {
+                        setState(() => _selectedDate = picked);
+                      }
+                    },
+                    child: Text(
+                      _selectedDate == null
+                          ? 'Seleccionar fecha'
+                          : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<String?>(
+                    initialValue: _selectedProject,
+                    items:
+                        <DropdownMenuItem<String?>>[
+                              const DropdownMenuItem<String?>(
+                                value: null,
+                                child: Text('Todos'),
+                              ),
+                            ]
+                            .followedBy(
+                              mockProjects.map(
+                                (p) => DropdownMenuItem<String?>(
+                                  value: p,
+                                  child: Text(p),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (v) => setState(() => _selectedProject = v),
+                    decoration: const InputDecoration(labelText: 'Proyecto'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(onPressed: _search, child: const Text('Buscar')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _loading
+                ? const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Expanded(
+                    child: _results.isEmpty
+                        ? const Center(child: Text('No hay registros'))
+                        : ListView.separated(
+                            itemCount: _results.length,
+                            separatorBuilder: (_, __) => const Divider(),
+                            itemBuilder: (context, i) {
+                              final a = _results[i];
+                              return ListTile(
+                                title: Text(a.name),
+                                subtitle: Text(
+                                  '${a.project} • ${a.locationLabel ?? '-'}',
+                                ),
+                                trailing: Text(
+                                  a.checkInTime == null
+                                      ? '-'
+                                      : '${a.checkInTime!.hour.toString().padLeft(2, '0')}:${a.checkInTime!.minute.toString().padLeft(2, '0')}',
+                                ),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => AsistenciaDetailScreen(
+                                      asistencia: a,
+                                      onChanged: () async {
+                                        await _search();
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
