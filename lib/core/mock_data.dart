@@ -52,11 +52,41 @@ class RendicionItem {
 }
 
 class TareoItem {
-  final DateTime date;
-  final String task;
-  final double hours;
+  DateTime date;
+  String task;
+  double hours;
+  String project;
+  String month; // format yyyy-MM
+  double amount;
 
-  TareoItem(this.date, this.task, this.hours);
+  TareoItem(
+    this.date,
+    this.task,
+    this.hours, {
+    this.project = '',
+    String? month,
+    this.amount = 0.0,
+  }) : month =
+           month ??
+           '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
+
+  Map<String, dynamic> toJson() => {
+    'date': date.toIso8601String(),
+    'task': task,
+    'hours': hours,
+    'project': project,
+    'month': month,
+    'amount': amount,
+  };
+
+  static TareoItem fromJson(Map<String, dynamic> json) => TareoItem(
+    DateTime.parse(json['date'] as String),
+    json['task'] as String,
+    (json['hours'] as num).toDouble(),
+    project: json['project'] as String? ?? '',
+    month: json['month'] as String?,
+    amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+  );
 }
 
 class AsistenciaItem {
@@ -173,8 +203,20 @@ Future<void> loadRendiciones() async {
 }
 
 final List<TareoItem> mockTareos = [
-  TareoItem(DateTime.now(), 'Inspección de equipo', 2.5),
-  TareoItem(DateTime.now(), 'Instalación', 4.0),
+  TareoItem(
+    DateTime.now(),
+    'Inspección de equipo',
+    2.5,
+    project: 'Proyecto Norte',
+    amount: 50.0,
+  ),
+  TareoItem(
+    DateTime.now(),
+    'Instalación',
+    4.0,
+    project: 'Obra Sur',
+    amount: 120.0,
+  ),
 ];
 
 final List<AsistenciaItem> mockAsistencias = [
@@ -201,7 +243,7 @@ final List<AsistenciaItem> mockAsistencias = [
   ),
 ];
 
-const List<String> mockProjects = [
+final List<String> mockProjects = [
   'Proyecto Norte',
   'Obra Sur',
   'Mantenimiento Central',
@@ -215,33 +257,40 @@ Future<Database> _openAttendanceDb() async {
     pathDb,
     version: 1,
     onCreate: (db, version) async {
-      await db.execute('''
-      CREATE TABLE asistencias(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT,
-        name TEXT,
-        present INTEGER,
-        project TEXT,
-        checkInTime TEXT,
-        latitude REAL,
-        longitude REAL,
-        locationLabel TEXT
-      )
-    ''');
-      await db.execute('''
-      CREATE TABLE projects(
-        name TEXT PRIMARY KEY,
-        qr TEXT
-      )
-    ''');
-      await db.execute('''
-      CREATE TABLE workers(
-        name TEXT PRIMARY KEY,
-        qr TEXT
-      )
-    ''');
+      await _ensureAttendanceSchema(db);
+    },
+    onOpen: (db) async {
+      await _ensureAttendanceSchema(db);
     },
   );
+}
+
+Future<void> _ensureAttendanceSchema(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS asistencias(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT,
+      name TEXT,
+      present INTEGER,
+      project TEXT,
+      checkInTime TEXT,
+      latitude REAL,
+      longitude REAL,
+      locationLabel TEXT
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS projects(
+      name TEXT PRIMARY KEY,
+      qr TEXT
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS workers(
+      name TEXT PRIMARY KEY,
+      qr TEXT
+    )
+  ''');
 }
 
 Future<void> saveAsistencias() async {
@@ -264,6 +313,51 @@ Future<void> loadAsistencias() async {
   mockAsistencias
     ..clear()
     ..addAll(rows.map((row) => AsistenciaItem.fromJson(row)));
+}
+
+// Tareos persistence
+Future<Database> _openTareosDb() async {
+  final dbPath = await getDatabasesPath();
+  final pathDb = join(dbPath, 'tareos.db');
+  return openDatabase(
+    pathDb,
+    version: 1,
+    onCreate: (db, version) async {
+      await db.execute('''
+      CREATE TABLE tareos(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        task TEXT,
+        hours REAL,
+        project TEXT,
+        month TEXT,
+        amount REAL
+      )
+    ''');
+    },
+  );
+}
+
+Future<void> saveTareos() async {
+  final db = await _openTareosDb();
+  final batch = db.batch();
+  await db.delete('tareos');
+  for (final t in mockTareos) {
+    batch.insert('tareos', t.toJson());
+  }
+  await batch.commit(noResult: true);
+}
+
+Future<void> loadTareos() async {
+  final db = await _openTareosDb();
+  final rows = await db.query('tareos', orderBy: 'date DESC');
+  if (rows.isEmpty) {
+    await saveTareos();
+    return;
+  }
+  mockTareos
+    ..clear()
+    ..addAll(rows.map((r) => TareoItem.fromJson(r)));
 }
 
 Future<List<AsistenciaItem>> getAsistenciasFiltered({

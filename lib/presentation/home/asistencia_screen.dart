@@ -17,6 +17,7 @@ class AsistenciaScreen extends StatefulWidget {
 class _AsistenciaScreenState extends State<AsistenciaScreen> {
   bool _isCapturingLocation = false;
   bool _loadingData = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -25,11 +26,21 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
   }
 
   Future<void> _loadAttendance() async {
-    await loadAsistencias();
-    if (!mounted) return;
-    setState(() {
-      _loadingData = false;
-    });
+    final isMounted = mounted;
+    try {
+      _loadError = null;
+      await loadAsistencias();
+      await loadProjectsAndWorkers();
+    } catch (_) {
+      _loadError =
+          'No se pudo cargar la asistencia desde SQLite. Se muestran datos locales.';
+    } finally {
+      if (isMounted && mounted) {
+        setState(() {
+          _loadingData = false;
+        });
+      }
+    }
   }
 
   Future<Position> _getCurrentPosition() async {
@@ -401,6 +412,27 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (_loadError != null)
+                  Card(
+                    color: Colors.orange.shade50,
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.orange.shade700,
+                      ),
+                      title: const Text('Carga parcial de asistencia'),
+                      subtitle: Text(_loadError!),
+                      trailing: TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _loadingData = true;
+                          });
+                          _loadAttendance();
+                        },
+                        child: const Text('Reintentar'),
+                      ),
+                    ),
+                  ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
