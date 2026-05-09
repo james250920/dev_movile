@@ -39,16 +39,22 @@ class RendicionItem {
     'imageBase64': imageBase64,
   };
 
-  static RendicionItem fromJson(Map<String, dynamic> json) => RendicionItem(
-    DateTime.parse(json['date'] as String),
-    json['description'] as String,
-    (json['amount'] as num).toDouble(),
-    type: json['type'] as String? ?? 'otros',
-    status: json['status'] as String? ?? 'borrador',
-    invoiceNumber: json['invoiceNumber'] as String? ?? '',
-    supplier: json['supplier'] as String? ?? '',
-    imageBase64: json['imageBase64'] as String?,
-  );
+  static RendicionItem fromJson(Map<String, dynamic> json) {
+    try {
+      return RendicionItem(
+        DateTime.parse(json['date'] as String),
+        json['description'] as String? ?? '',
+        (json['amount'] as num?)?.toDouble() ?? 0.0,
+        type: json['type'] as String? ?? 'otros',
+        status: json['status'] as String? ?? 'borrador',
+        invoiceNumber: json['invoiceNumber'] as String? ?? '',
+        supplier: json['supplier'] as String? ?? '',
+        imageBase64: json['imageBase64'] as String?,
+      );
+    } catch (e) {
+      throw FormatException('Error parsing RendicionItem: $e');
+    }
+  }
 }
 
 class TareoItem {
@@ -79,14 +85,20 @@ class TareoItem {
     'amount': amount,
   };
 
-  static TareoItem fromJson(Map<String, dynamic> json) => TareoItem(
-    DateTime.parse(json['date'] as String),
-    json['task'] as String,
-    (json['hours'] as num).toDouble(),
-    project: json['project'] as String? ?? '',
-    month: json['month'] as String?,
-    amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
-  );
+  static TareoItem fromJson(Map<String, dynamic> json) {
+    try {
+      return TareoItem(
+        DateTime.parse(json['date'] as String),
+        json['task'] as String? ?? 'Sin tarea',
+        (json['hours'] as num?)?.toDouble() ?? 0.0,
+        project: json['project'] as String? ?? '',
+        month: json['month'] as String?,
+        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+      );
+    } catch (e) {
+      throw FormatException('Error parsing TareoItem: $e');
+    }
+  }
 }
 
 class AsistenciaItem {
@@ -121,87 +133,208 @@ class AsistenciaItem {
     'locationLabel': locationLabel,
   };
 
-  static AsistenciaItem fromJson(Map<String, dynamic> json) => AsistenciaItem(
-    DateTime.parse(json['date'] as String),
-    json['name'] as String,
-    present: (json['present'] as num?)?.toInt() == 1,
-    project: json['project'] as String? ?? '',
-    checkInTime: json['checkInTime'] == null
-        ? null
-        : DateTime.parse(json['checkInTime'] as String),
-    latitude: (json['latitude'] as num?)?.toDouble(),
-    longitude: (json['longitude'] as num?)?.toDouble(),
-    locationLabel: json['locationLabel'] as String?,
-  );
+  static AsistenciaItem fromJson(Map<String, dynamic> json) {
+    try {
+      return AsistenciaItem(
+        DateTime.parse(json['date'] as String),
+        json['name'] as String? ?? 'Sin nombre',
+        present: (json['present'] as num?)?.toInt() == 1,
+        project: json['project'] as String? ?? '',
+        checkInTime: json['checkInTime'] == null
+            ? null
+            : DateTime.parse(json['checkInTime'] as String),
+        latitude: (json['latitude'] as num?)?.toDouble(),
+        longitude: (json['longitude'] as num?)?.toDouble(),
+        locationLabel: json['locationLabel'] as String?,
+      );
+    } catch (e) {
+      throw FormatException('Error parsing AsistenciaItem: $e');
+    }
+  }
 }
 
+// ==================== DATABASE MANAGEMENT ====================
+// Consolidated single database: dev_mobile.db
+// Version: 1 (for future migrations)
+
+Database? _dbInstance;
+
+Future<Database> _openDb() async {
+  if (_dbInstance != null) {
+    return _dbInstance!;
+  }
+
+  final dbPath = await getDatabasesPath();
+  final pathDb = join(dbPath, 'dev_mobile.db');
+
+  _dbInstance = await openDatabase(
+    pathDb,
+    version: 1,
+    onCreate: _createSchema,
+    onOpen: _verifySchema,
+  );
+
+  return _dbInstance!;
+}
+
+Future<void> _createSchema(Database db, int version) async {
+  // Create all tables with proper schema
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS rendiciones(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount REAL NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      invoiceNumber TEXT,
+      supplier TEXT,
+      imageBase64 TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS tareos(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      task TEXT NOT NULL,
+      hours REAL NOT NULL,
+      project TEXT,
+      month TEXT NOT NULL,
+      amount REAL NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS asistencias(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      name TEXT NOT NULL,
+      present INTEGER NOT NULL,
+      project TEXT,
+      checkInTime TEXT,
+      latitude REAL,
+      longitude REAL,
+      locationLabel TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS projects(
+      name TEXT PRIMARY KEY,
+      qr TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS workers(
+      name TEXT PRIMARY KEY,
+      qr TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+  // Create indexes for frequently queried columns
+  await _createIndexes(db);
+}
+
+Future<void> _createIndexes(Database db) async {
+  try {
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_rendiciones_date ON rendiciones(date DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_rendiciones_status ON rendiciones(status)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_tareos_date ON tareos(date DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_tareos_project ON tareos(project)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_tareos_month ON tareos(month)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_asistencias_date ON asistencias(date DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_asistencias_name ON asistencias(name)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_asistencias_project ON asistencias(project)');
+  } catch (e) {
+    // Indexes might already exist, that's fine
+  }
+}
+
+Future<void> _verifySchema(Database db) async {
+  // Ensure tables exist even if opening existing DB
+  try {
+    await _createSchema(db, 1);
+  } catch (e) {
+    // Tables likely already exist
+  }
+}
+
+Future<void> closeDatabase() async {
+  if (_dbInstance != null) {
+    await _dbInstance!.close();
+    _dbInstance = null;
+  }
+}
+
+// ==================== RENDICIONES PERSISTENCE ====================
 // Mock list (in-memory). Persistence via SQLite (sqflite).
 List<RendicionItem> mockRendiciones = [];
 
-Future<Database> _openDb() async {
-  final dbPath = await getDatabasesPath();
-  final pathDb = join(dbPath, 'rendiciones.db');
-  return openDatabase(
-    pathDb,
-    version: 1,
-    onCreate: (db, version) async {
-      await db.execute('''
-      CREATE TABLE rendiciones(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT,
-        description TEXT,
-        amount REAL,
-        type TEXT,
-        status TEXT,
-        invoiceNumber TEXT,
-        supplier TEXT,
-        imageBase64 TEXT
-      )
-    ''');
-    },
-  );
-}
-
 Future<void> saveRendiciones() async {
   final db = await _openDb();
-  final batch = db.batch();
-  await db.delete('rendiciones');
-  for (final r in mockRendiciones) {
-    batch.insert('rendiciones', r.toJson());
+  try {
+    await db.transaction((txn) async {
+      await txn.delete('rendiciones');
+      for (final r in mockRendiciones) {
+        await txn.insert('rendiciones', r.toJson(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  } catch (e) {
+    throw Exception('Error saving rendiciones: $e');
   }
-  await batch.commit(noResult: true);
 }
 
 Future<void> loadRendiciones() async {
   final db = await _openDb();
-  final rows = await db.query('rendiciones', orderBy: 'date DESC');
-  if (rows.isEmpty) {
-    mockRendiciones = [
-      RendicionItem(
-        DateTime.now().subtract(const Duration(days: 2)),
-        'Compra de materiales',
-        120.50,
-        type: 'asi',
-        status: 'aprobado',
-        invoiceNumber: '001-001-000123456',
-        supplier: 'Ferretería XYZ',
-      ),
-      RendicionItem(
-        DateTime.now().subtract(const Duration(days: 1)),
-        'Transporte',
-        45.00,
-        type: 'viaticos',
-        status: 'borrador',
-        invoiceNumber: '0010-000654321',
-        supplier: 'Taxi Plus',
-      ),
-    ];
-    await saveRendiciones();
-    return;
+  try {
+    final rows = await db.query('rendiciones', orderBy: 'date DESC');
+    if (rows.isEmpty) {
+      mockRendiciones = [
+        RendicionItem(
+          DateTime.now().subtract(const Duration(days: 2)),
+          'Compra de materiales',
+          120.50,
+          type: 'asi',
+          status: 'aprobado',
+          invoiceNumber: '001-001-000123456',
+          supplier: 'Ferretería XYZ',
+        ),
+        RendicionItem(
+          DateTime.now().subtract(const Duration(days: 1)),
+          'Transporte',
+          45.00,
+          type: 'viaticos',
+          status: 'borrador',
+          invoiceNumber: '0010-000654321',
+          supplier: 'Taxi Plus',
+        ),
+      ];
+      await saveRendiciones();
+      return;
+    }
+    mockRendiciones = rows
+        .map((r) {
+          try {
+            return RendicionItem.fromJson(r);
+          } catch (e) {
+            throw FormatException('Invalid rendicion row: $r, error: $e');
+          }
+        })
+        .toList();
+  } catch (e) {
+    throw Exception('Error loading rendiciones: $e');
   }
-  mockRendiciones = rows.map((r) => RendicionItem.fromJson(r)).toList();
 }
 
+// ==================== TAREOS PERSISTENCE ====================
 final List<TareoItem> mockTareos = [
   TareoItem(
     DateTime.now(),
@@ -219,6 +352,44 @@ final List<TareoItem> mockTareos = [
   ),
 ];
 
+Future<void> saveTareos() async {
+  final db = await _openDb();
+  try {
+    await db.transaction((txn) async {
+      await txn.delete('tareos');
+      for (final t in mockTareos) {
+        await txn.insert('tareos', t.toJson(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  } catch (e) {
+    throw Exception('Error saving tareos: $e');
+  }
+}
+
+Future<void> loadTareos() async {
+  final db = await _openDb();
+  try {
+    final rows = await db.query('tareos', orderBy: 'date DESC');
+    if (rows.isEmpty) {
+      await saveTareos();
+      return;
+    }
+    mockTareos
+      ..clear()
+      ..addAll(rows.map((r) {
+        try {
+          return TareoItem.fromJson(r);
+        } catch (e) {
+          throw FormatException('Invalid tareo row: $r, error: $e');
+        }
+      }));
+  } catch (e) {
+    throw Exception('Error loading tareos: $e');
+  }
+}
+
+// ==================== ASISTENCIAS PERSISTENCE ====================
 final List<AsistenciaItem> mockAsistencias = [
   AsistenciaItem(
     DateTime.now(),
@@ -243,6 +414,91 @@ final List<AsistenciaItem> mockAsistencias = [
   ),
 ];
 
+Future<void> saveAsistencias() async {
+  final db = await _openDb();
+  try {
+    await db.transaction((txn) async {
+      await txn.delete('asistencias');
+      for (final a in mockAsistencias) {
+        await txn.insert('asistencias', a.toJson(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  } catch (e) {
+    throw Exception('Error saving asistencias: $e');
+  }
+}
+
+Future<void> loadAsistencias() async {
+  final db = await _openDb();
+  try {
+    final rows = await db.query('asistencias', orderBy: 'date DESC');
+    if (rows.isEmpty) {
+      await saveAsistencias();
+      return;
+    }
+    mockAsistencias
+      ..clear()
+      ..addAll(rows.map((row) {
+        try {
+          return AsistenciaItem.fromJson(row);
+        } catch (e) {
+          throw FormatException('Invalid asistencia row: $row, error: $e');
+        }
+      }));
+  } catch (e) {
+    throw Exception('Error loading asistencias: $e');
+  }
+}
+
+Future<List<AsistenciaItem>> getAsistenciasFiltered({
+  DateTime? date,
+  String? project,
+}) async {
+  final db = await _openDb();
+  try {
+    final rows = await db.query('asistencias', orderBy: 'date DESC');
+    final list = rows.map((r) {
+      try {
+        return AsistenciaItem.fromJson(r);
+      } catch (e) {
+        throw FormatException('Invalid asistencia in filter: $r, error: $e');
+      }
+    }).toList();
+    return list.where((a) {
+      var ok = true;
+      if (project != null && project.isNotEmpty) ok = ok && a.project == project;
+      if (date != null) {
+        ok = ok &&
+            a.date.year == date.year &&
+            a.date.month == date.month &&
+            a.date.day == date.day;
+      }
+      return ok;
+    }).toList();
+  } catch (e) {
+    throw Exception('Error filtering asistencias: $e');
+  }
+}
+
+// ==================== PROJECTS AND WORKERS PERSISTENCE ====================
+class WorkerItem {
+  String name;
+  String qr;
+  WorkerItem(this.name, this.qr);
+  Map<String, dynamic> toJson() => {'name': name, 'qr': qr};
+  static WorkerItem fromJson(Map<String, dynamic> j) {
+    try {
+      return WorkerItem(
+        j['name'] as String? ?? 'Sin nombre',
+        j['qr'] as String? ?? '',
+      );
+    } catch (e) {
+      throw FormatException('Error parsing WorkerItem: $e');
+    }
+  }
+}
+
 final List<String> mockProjects = [
   'Proyecto Norte',
   'Obra Sur',
@@ -250,197 +506,59 @@ final List<String> mockProjects = [
   'Planta Este',
 ];
 
-Future<Database> _openAttendanceDb() async {
-  final dbPath = await getDatabasesPath();
-  final pathDb = join(dbPath, 'asistencias.db');
-  return openDatabase(
-    pathDb,
-    version: 1,
-    onCreate: (db, version) async {
-      await _ensureAttendanceSchema(db);
-    },
-    onOpen: (db) async {
-      await _ensureAttendanceSchema(db);
-    },
-  );
-}
-
-Future<void> _ensureAttendanceSchema(Database db) async {
-  await db.execute('''
-    CREATE TABLE IF NOT EXISTS asistencias(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT,
-      name TEXT,
-      present INTEGER,
-      project TEXT,
-      checkInTime TEXT,
-      latitude REAL,
-      longitude REAL,
-      locationLabel TEXT
-    )
-  ''');
-  await db.execute('''
-    CREATE TABLE IF NOT EXISTS projects(
-      name TEXT PRIMARY KEY,
-      qr TEXT
-    )
-  ''');
-  await db.execute('''
-    CREATE TABLE IF NOT EXISTS workers(
-      name TEXT PRIMARY KEY,
-      qr TEXT
-    )
-  ''');
-}
-
-Future<void> saveAsistencias() async {
-  final db = await _openAttendanceDb();
-  final batch = db.batch();
-  await db.delete('asistencias');
-  for (final a in mockAsistencias) {
-    batch.insert('asistencias', a.toJson());
-  }
-  await batch.commit(noResult: true);
-}
-
-Future<void> loadAsistencias() async {
-  final db = await _openAttendanceDb();
-  final rows = await db.query('asistencias', orderBy: 'date DESC');
-  if (rows.isEmpty) {
-    await saveAsistencias();
-    return;
-  }
-  mockAsistencias
-    ..clear()
-    ..addAll(rows.map((row) => AsistenciaItem.fromJson(row)));
-}
-
-// Tareos persistence
-Future<Database> _openTareosDb() async {
-  final dbPath = await getDatabasesPath();
-  final pathDb = join(dbPath, 'tareos.db');
-  return openDatabase(
-    pathDb,
-    version: 1,
-    onCreate: (db, version) async {
-      await db.execute('''
-      CREATE TABLE tareos(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT,
-        task TEXT,
-        hours REAL,
-        project TEXT,
-        month TEXT,
-        amount REAL
-      )
-    ''');
-    },
-  );
-}
-
-Future<void> saveTareos() async {
-  final db = await _openTareosDb();
-  final batch = db.batch();
-  await db.delete('tareos');
-  for (final t in mockTareos) {
-    batch.insert('tareos', t.toJson());
-  }
-  await batch.commit(noResult: true);
-}
-
-Future<void> loadTareos() async {
-  final db = await _openTareosDb();
-  final rows = await db.query('tareos', orderBy: 'date DESC');
-  if (rows.isEmpty) {
-    await saveTareos();
-    return;
-  }
-  mockTareos
-    ..clear()
-    ..addAll(rows.map((r) => TareoItem.fromJson(r)));
-}
-
-Future<List<AsistenciaItem>> getAsistenciasFiltered({
-  DateTime? date,
-  String? project,
-}) async {
-  final db = await _openAttendanceDb();
-  final rows = await db.query('asistencias', orderBy: 'date DESC');
-  final list = rows.map((r) => AsistenciaItem.fromJson(r)).toList();
-  return list.where((a) {
-    var ok = true;
-    if (project != null && project.isNotEmpty) ok = ok && a.project == project;
-    if (date != null) {
-      ok =
-          ok &&
-          a.date.year == date.year &&
-          a.date.month == date.month &&
-          a.date.day == date.day;
-    }
-    return ok;
-  }).toList();
-}
-
-// Projects and workers tables (simple QR content storage)
-class WorkerItem {
-  String name;
-  String qr;
-  WorkerItem(this.name, this.qr);
-  Map<String, dynamic> toJson() => {'name': name, 'qr': qr};
-  static WorkerItem fromJson(Map<String, dynamic> j) =>
-      WorkerItem(j['name'] as String, j['qr'] as String);
-}
-
 List<WorkerItem> mockWorkers = [
   WorkerItem('Juan Perez', 'employee:Juan Perez'),
   WorkerItem('María López', 'employee:María López'),
   WorkerItem('Carlos Ruiz', 'employee:Carlos Ruiz'),
 ];
 
-Future<void> _ensureProjectWorkerTables(Database db) async {
-  await db.execute('''
-    CREATE TABLE IF NOT EXISTS projects(
-      name TEXT PRIMARY KEY,
-      qr TEXT
-    )
-  ''');
-  await db.execute('''
-    CREATE TABLE IF NOT EXISTS workers(
-      name TEXT PRIMARY KEY,
-      qr TEXT
-    )
-  ''');
-}
-
 Future<void> saveProjectsAndWorkers() async {
-  final db = await _openAttendanceDb();
-  await _ensureProjectWorkerTables(db);
-  final batch = db.batch();
-  await db.delete('projects');
-  await db.delete('workers');
-  for (final p in mockProjects) {
-    batch.insert('projects', {'name': p, 'qr': 'project:$p'});
+  final db = await _openDb();
+  try {
+    await db.transaction((txn) async {
+      await txn.delete('projects');
+      await txn.delete('workers');
+      for (final p in mockProjects) {
+        await txn.insert('projects', {'name': p, 'qr': 'project:$p'},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final w in mockWorkers) {
+        await txn.insert('workers', w.toJson(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  } catch (e) {
+    throw Exception('Error saving projects and workers: $e');
   }
-  for (final w in mockWorkers) {
-    batch.insert('workers', w.toJson());
-  }
-  await batch.commit(noResult: true);
 }
 
 Future<void> loadProjectsAndWorkers() async {
-  final db = await _openAttendanceDb();
-  await _ensureProjectWorkerTables(db);
-  final pRows = await db.query('projects');
-  if (pRows.isNotEmpty) {
-    mockProjects.clear();
-    for (final r in pRows) {
-      mockProjects.add(r['name'] as String);
+  final db = await _openDb();
+  try {
+    final pRows = await db.query('projects');
+    if (pRows.isNotEmpty) {
+      mockProjects.clear();
+      for (final r in pRows) {
+        final name = r['name'] as String?;
+        if (name != null && name.isNotEmpty) {
+          mockProjects.add(name);
+        }
+      }
+    } else {
+      await saveProjectsAndWorkers();
     }
-  } else {
-    await saveProjectsAndWorkers();
-  }
-  final wRows = await db.query('workers');
-  if (wRows.isNotEmpty) {
-    mockWorkers = wRows.map((r) => WorkerItem.fromJson(r)).toList();
+
+    final wRows = await db.query('workers');
+    if (wRows.isNotEmpty) {
+      mockWorkers = wRows.map((r) {
+        try {
+          return WorkerItem.fromJson(r);
+        } catch (e) {
+          throw FormatException('Invalid worker row: $r, error: $e');
+        }
+      }).toList();
+    }
+  } catch (e) {
+    throw Exception('Error loading projects and workers: $e');
   }
 }

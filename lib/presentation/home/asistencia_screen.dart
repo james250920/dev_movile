@@ -31,9 +31,9 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
       _loadError = null;
       await loadAsistencias();
       await loadProjectsAndWorkers();
-    } catch (_) {
+    } catch (e) {
       _loadError =
-          'No se pudo cargar la asistencia desde SQLite. Se muestran datos locales.';
+          'Error al cargar asistencia: ${e.toString()}. Se muestran datos locales.';
     } finally {
       if (isMounted && mounted) {
         setState(() {
