@@ -244,14 +244,30 @@ Future<void> _createSchema(Database db, int version) async {
 
 Future<void> _createIndexes(Database db) async {
   try {
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_rendiciones_date ON rendiciones(date DESC)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_rendiciones_status ON rendiciones(status)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_tareos_date ON tareos(date DESC)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_tareos_project ON tareos(project)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_tareos_month ON tareos(month)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_asistencias_date ON asistencias(date DESC)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_asistencias_name ON asistencias(name)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_asistencias_project ON asistencias(project)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_rendiciones_date ON rendiciones(date DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_rendiciones_status ON rendiciones(status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tareos_date ON tareos(date DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tareos_project ON tareos(project)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tareos_month ON tareos(month)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_asistencias_date ON asistencias(date DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_asistencias_name ON asistencias(name)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_asistencias_project ON asistencias(project)',
+    );
   } catch (e) {
     // Indexes might already exist, that's fine
   }
@@ -283,8 +299,11 @@ Future<void> saveRendiciones() async {
     await db.transaction((txn) async {
       await txn.delete('rendiciones');
       for (final r in mockRendiciones) {
-        await txn.insert('rendiciones', r.toJson(),
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert(
+          'rendiciones',
+          r.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
     });
   } catch (e) {
@@ -320,15 +339,13 @@ Future<void> loadRendiciones() async {
       await saveRendiciones();
       return;
     }
-    mockRendiciones = rows
-        .map((r) {
-          try {
-            return RendicionItem.fromJson(r);
-          } catch (e) {
-            throw FormatException('Invalid rendicion row: $r, error: $e');
-          }
-        })
-        .toList();
+    mockRendiciones = rows.map((r) {
+      try {
+        return RendicionItem.fromJson(r);
+      } catch (e) {
+        throw FormatException('Invalid rendicion row: $r, error: $e');
+      }
+    }).toList();
   } catch (e) {
     throw Exception('Error loading rendiciones: $e');
   }
@@ -358,8 +375,11 @@ Future<void> saveTareos() async {
     await db.transaction((txn) async {
       await txn.delete('tareos');
       for (final t in mockTareos) {
-        await txn.insert('tareos', t.toJson(),
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert(
+          'tareos',
+          t.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
     });
   } catch (e) {
@@ -377,13 +397,15 @@ Future<void> loadTareos() async {
     }
     mockTareos
       ..clear()
-      ..addAll(rows.map((r) {
-        try {
-          return TareoItem.fromJson(r);
-        } catch (e) {
-          throw FormatException('Invalid tareo row: $r, error: $e');
-        }
-      }));
+      ..addAll(
+        rows.map((r) {
+          try {
+            return TareoItem.fromJson(r);
+          } catch (e) {
+            throw FormatException('Invalid tareo row: $r, error: $e');
+          }
+        }),
+      );
   } catch (e) {
     throw Exception('Error loading tareos: $e');
   }
@@ -420,8 +442,11 @@ Future<void> saveAsistencias() async {
     await db.transaction((txn) async {
       await txn.delete('asistencias');
       for (final a in mockAsistencias) {
-        await txn.insert('asistencias', a.toJson(),
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert(
+          'asistencias',
+          a.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
     });
   } catch (e) {
@@ -439,13 +464,15 @@ Future<void> loadAsistencias() async {
     }
     mockAsistencias
       ..clear()
-      ..addAll(rows.map((row) {
-        try {
-          return AsistenciaItem.fromJson(row);
-        } catch (e) {
-          throw FormatException('Invalid asistencia row: $row, error: $e');
-        }
-      }));
+      ..addAll(
+        rows.map((row) {
+          try {
+            return AsistenciaItem.fromJson(row);
+          } catch (e) {
+            throw FormatException('Invalid asistencia row: $row, error: $e');
+          }
+        }),
+      );
   } catch (e) {
     throw Exception('Error loading asistencias: $e');
   }
@@ -467,9 +494,11 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
     }).toList();
     return list.where((a) {
       var ok = true;
-      if (project != null && project.isNotEmpty) ok = ok && a.project == project;
+      if (project != null && project.isNotEmpty)
+        ok = ok && a.project == project;
       if (date != null) {
-        ok = ok &&
+        ok =
+            ok &&
             a.date.year == date.year &&
             a.date.month == date.month &&
             a.date.day == date.day;
@@ -519,12 +548,17 @@ Future<void> saveProjectsAndWorkers() async {
       await txn.delete('projects');
       await txn.delete('workers');
       for (final p in mockProjects) {
-        await txn.insert('projects', {'name': p, 'qr': 'project:$p'},
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert('projects', {
+          'name': p,
+          'qr': 'project:$p',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       for (final w in mockWorkers) {
-        await txn.insert('workers', w.toJson(),
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert(
+          'workers',
+          w.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
     });
   } catch (e) {
