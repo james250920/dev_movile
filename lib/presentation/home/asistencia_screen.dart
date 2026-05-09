@@ -3,8 +3,8 @@ import 'package:dev_mobile/presentation/home/asistencia_detail_screen.dart';
 import 'package:dev_mobile/presentation/home/projects_screen.dart';
 import 'package:dev_mobile/presentation/home/workers_screen.dart';
 import 'package:dev_mobile/presentation/home/attendance_history_screen.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class AsistenciaScreen extends StatefulWidget {
@@ -26,16 +26,18 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
   }
 
   Future<void> _loadAttendance() async {
-    final isMounted = mounted;
     try {
       _loadError = null;
-      await loadAsistencias();
-      await loadProjectsAndWorkers();
+      // Load both in parallel instead of sequentially
+      await Future.wait([
+        loadAsistencias(),
+        loadProjectsAndWorkers(),
+      ]).timeout(const Duration(seconds: 3));
     } catch (e) {
       _loadError =
-          'Error al cargar asistencia: ${e.toString()}. Se muestran datos locales.';
+          'Error al cargar asistencia. Se muestran datos locales.';
     } finally {
-      if (isMounted && mounted) {
+      if (mounted) {
         setState(() {
           _loadingData = false;
         });
@@ -43,31 +45,8 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
     }
   }
 
-  Future<Position> _getCurrentPosition() async {
-    final isEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!isEnabled) {
-      throw Exception(
-        'Activa la ubicación del dispositivo para registrar la asistencia.',
-      );
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied) {
-      throw Exception('Permiso de ubicación denegado.');
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      throw Exception('Permiso de ubicación bloqueado permanentemente.');
-    }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
-  }
+  // GPS deshabilitado temporalmente.
+  // Future<Position?> _getCurrentPosition() async => null;
 
   void _applyQrCode(int index, String rawValue, StateSetter setModalState) {
     final employee = mockAsistencias[index];
@@ -199,7 +178,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                   ),
                   const SizedBox(height: 12),
                   const Text(
-                    'La ubicación se capturará en tiempo real al marcar.',
+                    'La ubicación está desactivada por ahora.',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
@@ -227,18 +206,15 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                                 setState(() {
                                   _isCapturingLocation = true;
                                 });
-                                final position = await _getCurrentPosition();
                                 final now = DateTime.now();
-                                final coordinates =
-                                    '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
 
                                 setState(() {
                                   employee.present = true;
                                   employee.project = selectedProject;
                                   employee.checkInTime = now;
-                                  employee.latitude = position.latitude;
-                                  employee.longitude = position.longitude;
-                                  employee.locationLabel = 'GPS $coordinates';
+                                  employee.latitude = null;
+                                  employee.longitude = null;
+                                  employee.locationLabel = 'Sin ubicación';
                                 });
                                 await saveAsistencias();
 
@@ -433,37 +409,62 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                       ),
                     ),
                   ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.list),
-                      label: const Text('Proyectos'),
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const ProjectsScreen(),
+                // Botones de filtro desplazables horizontalmente
+                SizedBox(
+                  height: 56,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.only(left: 4, right: 4),
+                    child: Row(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.list),
+                            label: const Text('Proyectos'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const ProjectsScreen(),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.group),
-                      label: const Text('Trabajadores'),
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const WorkersScreen(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.group),
+                            label: const Text('Trabajadores'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const WorkersScreen(),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.history),
-                      label: const Text('Historial'),
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AttendanceHistoryScreen(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.history),
+                            label: const Text('Historial'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const AttendanceHistoryScreen(),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -158,23 +161,64 @@ class AsistenciaItem {
 // Version: 1 (for future migrations)
 
 Database? _dbInstance;
+bool _dbInitializing = false;
 
 Future<Database> _openDb() async {
-  if (_dbInstance != null) {
-    return _dbInstance!;
+  // Skip database on web - use in-memory mock data only
+  if (kIsWeb) {
+    throw Exception('Database not available on web. Using local mock data.');
   }
 
-  final dbPath = await getDatabasesPath();
-  final pathDb = join(dbPath, 'dev_mobile.db');
+  // Return existing instance
+  if (_dbInstance != null) {
+    try {
+      // Verify connection is still valid
+      await _dbInstance!
+          .rawQuery('SELECT 1')
+          .timeout(const Duration(seconds: 3));
+      return _dbInstance!;
+    } catch (_) {
+      // Connection is broken, reset it
+      _dbInstance = null;
+    }
+  }
 
-  _dbInstance = await openDatabase(
-    pathDb,
-    version: 1,
-    onCreate: _createSchema,
-    onOpen: _verifySchema,
-  );
+  // Prevent concurrent initialization attempts
+  if (_dbInitializing) {
+    int retries = 0;
+    while (_dbInitializing && retries < 50) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      retries++;
+    }
 
-  return _dbInstance!;
+    if (_dbInstance != null) {
+      return _dbInstance!;
+    }
+
+    if (_dbInitializing) {
+      throw TimeoutException('Database initialization timed out');
+    }
+  }
+
+  _dbInitializing = true;
+  try {
+    final dbPath = await getDatabasesPath();
+    final pathDb = join(dbPath, 'dev_mobile.db');
+
+    _dbInstance = await openDatabase(
+      pathDb,
+      version: 1,
+      onCreate: _createSchema,
+      onOpen: _verifySchema,
+    ).timeout(const Duration(seconds: 3));
+
+    return _dbInstance!;
+  } catch (e) {
+    _dbInstance = null;
+    throw Exception('Failed to open database: $e');
+  } finally {
+    _dbInitializing = false;
+  }
 }
 
 Future<void> _createSchema(Database db, int version) async {
@@ -294,8 +338,13 @@ Future<void> closeDatabase() async {
 List<RendicionItem> mockRendiciones = [];
 
 Future<void> saveRendiciones() async {
-  final db = await _openDb();
+  // On web, there's no persistent database, so just skip
+  if (kIsWeb) {
+    return;
+  }
+
   try {
+    final db = await _openDb();
     await db.transaction((txn) async {
       await txn.delete('rendiciones');
       for (final r in mockRendiciones) {
@@ -307,14 +356,17 @@ Future<void> saveRendiciones() async {
       }
     });
   } catch (e) {
-    throw Exception('Error saving rendiciones: $e');
+    // Silently ignore save errors on non-web platforms
+    return;
   }
 }
 
 Future<void> loadRendiciones() async {
   final db = await _openDb();
   try {
-    final rows = await db.query('rendiciones', orderBy: 'date DESC');
+    final rows = await db
+        .query('rendiciones', orderBy: 'date DESC')
+        .timeout(const Duration(seconds: 3));
     if (rows.isEmpty) {
       mockRendiciones = [
         RendicionItem(
@@ -370,8 +422,13 @@ final List<TareoItem> mockTareos = [
 ];
 
 Future<void> saveTareos() async {
-  final db = await _openDb();
+  // On web, there's no persistent database, so just skip
+  if (kIsWeb) {
+    return;
+  }
+
   try {
+    final db = await _openDb();
     await db.transaction((txn) async {
       await txn.delete('tareos');
       for (final t in mockTareos) {
@@ -383,31 +440,46 @@ Future<void> saveTareos() async {
       }
     });
   } catch (e) {
-    throw Exception('Error saving tareos: $e');
+    // Silently ignore save errors on non-web platforms
+    return;
   }
 }
 
 Future<void> loadTareos() async {
-  final db = await _openDb();
   try {
-    final rows = await db.query('tareos', orderBy: 'date DESC');
+    final db = await _openDb();
+    final rows = await db
+        .query('tareos', orderBy: 'date DESC')
+        .timeout(const Duration(seconds: 3));
     if (rows.isEmpty) {
-      await saveTareos();
+      // If no data in DB, save defaults and return
+      try {
+        await saveTareos();
+      } catch (_) {
+        // Ignore save errors on first load
+      }
       return;
     }
-    mockTareos
-      ..clear()
-      ..addAll(
-        rows.map((r) {
-          try {
-            return TareoItem.fromJson(r);
-          } catch (e) {
-            throw FormatException('Invalid tareo row: $r, error: $e');
-          }
-        }),
-      );
+
+    // Parse rows with validation
+    final parsedItems = <TareoItem>[];
+    for (final r in rows) {
+      try {
+        parsedItems.add(TareoItem.fromJson(r));
+      } catch (e) {
+        // Skip invalid rows
+        continue;
+      }
+    }
+
+    if (parsedItems.isNotEmpty) {
+      mockTareos
+        ..clear()
+        ..addAll(parsedItems);
+    }
   } catch (e) {
-    throw Exception('Error loading tareos: $e');
+    // Keep existing mock data, don't throw
+    return;
   }
 }
 
@@ -437,8 +509,13 @@ final List<AsistenciaItem> mockAsistencias = [
 ];
 
 Future<void> saveAsistencias() async {
-  final db = await _openDb();
+  // On web, there's no persistent database, so just skip
+  if (kIsWeb) {
+    return;
+  }
+
   try {
+    final db = await _openDb();
     await db.transaction((txn) async {
       await txn.delete('asistencias');
       for (final a in mockAsistencias) {
@@ -450,31 +527,46 @@ Future<void> saveAsistencias() async {
       }
     });
   } catch (e) {
-    throw Exception('Error saving asistencias: $e');
+    // Silently ignore save errors on non-web platforms
+    return;
   }
 }
 
 Future<void> loadAsistencias() async {
-  final db = await _openDb();
   try {
-    final rows = await db.query('asistencias', orderBy: 'date DESC');
+    final db = await _openDb();
+    final rows = await db
+        .query('asistencias', orderBy: 'date DESC')
+        .timeout(const Duration(seconds: 3));
     if (rows.isEmpty) {
-      await saveAsistencias();
+      // If no data in DB, save defaults and return
+      try {
+        await saveAsistencias();
+      } catch (_) {
+        // Ignore save errors on first load
+      }
       return;
     }
-    mockAsistencias
-      ..clear()
-      ..addAll(
-        rows.map((row) {
-          try {
-            return AsistenciaItem.fromJson(row);
-          } catch (e) {
-            throw FormatException('Invalid asistencia row: $row, error: $e');
-          }
-        }),
-      );
+
+    // Parse rows with validation
+    final parsedItems = <AsistenciaItem>[];
+    for (final row in rows) {
+      try {
+        parsedItems.add(AsistenciaItem.fromJson(row));
+      } catch (e) {
+        // Skip invalid rows
+        continue;
+      }
+    }
+
+    if (parsedItems.isNotEmpty) {
+      mockAsistencias
+        ..clear()
+        ..addAll(parsedItems);
+    }
   } catch (e) {
-    throw Exception('Error loading asistencias: $e');
+    // Keep existing mock data, don't throw
+    return;
   }
 }
 
@@ -482,9 +574,29 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
   DateTime? date,
   String? project,
 }) async {
-  final db = await _openDb();
   try {
-    final rows = await db.query('asistencias', orderBy: 'date DESC');
+    // On web, skip database and filter in-memory directly
+    if (kIsWeb) {
+      return mockAsistencias.where((a) {
+        var ok = true;
+        if (project != null && project.isNotEmpty) {
+          ok = ok && a.project == project;
+        }
+        if (date != null) {
+          ok =
+              ok &&
+              a.date.year == date.year &&
+              a.date.month == date.month &&
+              a.date.day == date.day;
+        }
+        return ok;
+      }).toList();
+    }
+
+    final db = await _openDb();
+    final rows = await db
+        .query('asistencias', orderBy: 'date DESC')
+        .timeout(const Duration(seconds: 3));
     final list = rows.map((r) {
       try {
         return AsistenciaItem.fromJson(r);
@@ -494,8 +606,9 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
     }).toList();
     return list.where((a) {
       var ok = true;
-      if (project != null && project.isNotEmpty)
+      if (project != null && project.isNotEmpty) {
         ok = ok && a.project == project;
+      }
       if (date != null) {
         ok =
             ok &&
@@ -506,7 +619,21 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
       return ok;
     }).toList();
   } catch (e) {
-    throw Exception('Error filtering asistencias: $e');
+    // Fall back to in-memory filtering if database fails
+    return mockAsistencias.where((a) {
+      var ok = true;
+      if (project != null && project.isNotEmpty) {
+        ok = ok && a.project == project;
+      }
+      if (date != null) {
+        ok =
+            ok &&
+            a.date.year == date.year &&
+            a.date.month == date.month &&
+            a.date.day == date.day;
+      }
+      return ok;
+    }).toList();
   }
 }
 
@@ -542,8 +669,13 @@ List<WorkerItem> mockWorkers = [
 ];
 
 Future<void> saveProjectsAndWorkers() async {
-  final db = await _openDb();
+  // On web, there's no persistent database, so just skip
+  if (kIsWeb) {
+    return;
+  }
+
   try {
+    final db = await _openDb();
     await db.transaction((txn) async {
       await txn.delete('projects');
       await txn.delete('workers');
@@ -562,37 +694,63 @@ Future<void> saveProjectsAndWorkers() async {
       }
     });
   } catch (e) {
-    throw Exception('Error saving projects and workers: $e');
+    // Silently ignore save errors on non-web platforms
+    return;
   }
 }
 
 Future<void> loadProjectsAndWorkers() async {
-  final db = await _openDb();
   try {
-    final pRows = await db.query('projects');
-    if (pRows.isNotEmpty) {
-      mockProjects.clear();
-      for (final r in pRows) {
-        final name = r['name'] as String?;
-        if (name != null && name.isNotEmpty) {
-          mockProjects.add(name);
+    final db = await _openDb();
+
+    // Load projects
+    try {
+      final pRows = await db
+          .query('projects')
+          .timeout(const Duration(seconds: 2));
+      if (pRows.isNotEmpty) {
+        mockProjects.clear();
+        for (final r in pRows) {
+          final name = r['name'] as String?;
+          if (name != null && name.isNotEmpty) {
+            mockProjects.add(name);
+          }
+        }
+      } else {
+        try {
+          await saveProjectsAndWorkers();
+        } catch (_) {
+          // Ignore save errors
         }
       }
-    } else {
-      await saveProjectsAndWorkers();
+    } catch (_) {
+      // Keep defaults if load fails
     }
 
-    final wRows = await db.query('workers');
-    if (wRows.isNotEmpty) {
-      mockWorkers = wRows.map((r) {
-        try {
-          return WorkerItem.fromJson(r);
-        } catch (e) {
-          throw FormatException('Invalid worker row: $r, error: $e');
+    // Load workers
+    try {
+      final wRows = await db
+          .query('workers')
+          .timeout(const Duration(seconds: 2));
+      if (wRows.isNotEmpty) {
+        final parsedWorkers = <WorkerItem>[];
+        for (final r in wRows) {
+          try {
+            parsedWorkers.add(WorkerItem.fromJson(r));
+          } catch (e) {
+            // Skip invalid rows
+            continue;
+          }
         }
-      }).toList();
+        if (parsedWorkers.isNotEmpty) {
+          mockWorkers = parsedWorkers;
+        }
+      }
+    } catch (_) {
+      // Keep defaults if load fails
     }
   } catch (e) {
-    throw Exception('Error loading projects and workers: $e');
+    // Keep existing mock data, don't throw
+    return;
   }
 }

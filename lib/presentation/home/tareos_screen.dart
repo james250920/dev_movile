@@ -35,9 +35,7 @@ class _TareosScreenState extends State<TareosScreen> {
             : _selectedProject;
       }
     } catch (e) {
-      // If SQLite fails for any reason, keep the screen usable with in-memory data.
-      _loadError =
-          'Error al cargar tareos: ${e.toString()}. Se usan datos locales.';
+      _loadError = 'Error inesperado al cargar tareos. Se usan datos locales.';
     } finally {
       if (mounted) {
         setState(() {

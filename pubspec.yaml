@@ -10,6 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   sqflite: ^2.2.8
+  sqflite_common_ffi: ^2.3.0
+  sqflite_common_ffi_web: ^1.0.0
   path: ^1.8.2
   image_picker: ^1.0.0
   geolocator: ^13.0.1

@@ -17,25 +17,53 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
   bool _loading = false;
 
   Future<void> _search() async {
-    setState(() => _loading = true);
-    final list = await getAsistenciasFiltered(
-      date: _selectedDate,
-      project: _selectedProject,
-    );
-    setState(() {
-      _results = list;
-      _loading = false;
-    });
+    try {
+      setState(() => _loading = true);
+      final list = await getAsistenciasFiltered(
+        date: _selectedDate,
+        project: _selectedProject,
+      ).timeout(const Duration(seconds: 2));
+      
+      if (mounted) {
+        setState(() {
+          _results = list;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _results = [];
+          _loading = false;
+        });
+      }
+    }
   }
 
   @override
   void initState() {
     super.initState();
-    loadAsistencias().then((_) async {
-      await loadProjectsAndWorkers();
-      setState(() {});
-      await _search();
-    });
+    _initializeAndSearch();
+  }
+
+  Future<void> _initializeAndSearch() async {
+    try {
+      // Load data in parallel, not sequentially
+      await Future.wait([
+        loadAsistencias(),
+        loadProjectsAndWorkers(),
+      ]);
+      
+      // After loading, perform search with current filters
+      if (mounted) {
+        await _search();
+      }
+    } catch (e) {
+      // Silently fail - data is already loaded as defaults
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   @override
