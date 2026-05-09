@@ -34,8 +34,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
         loadProjectsAndWorkers(),
       ]).timeout(const Duration(seconds: 3));
     } catch (e) {
-      _loadError =
-          'Error al cargar asistencia. Se muestran datos locales.';
+      _loadError = 'Error al cargar asistencia. Se muestran datos locales.';
     } finally {
       if (mounted) {
         setState(() {
@@ -423,7 +422,10 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                             icon: const Icon(Icons.list),
                             label: const Text('Proyectos'),
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
                             ),
                             onPressed: () => Navigator.of(context).push(
                               MaterialPageRoute(
@@ -438,7 +440,10 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                             icon: const Icon(Icons.group),
                             label: const Text('Trabajadores'),
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
                             ),
                             onPressed: () => Navigator.of(context).push(
                               MaterialPageRoute(
@@ -453,7 +458,10 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                             icon: const Icon(Icons.history),
                             label: const Text('Historial'),
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
                             ),
                             onPressed: () => Navigator.of(context).push(
                               MaterialPageRoute(

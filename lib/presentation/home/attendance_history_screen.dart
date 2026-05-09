@@ -23,7 +23,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
         date: _selectedDate,
         project: _selectedProject,
       ).timeout(const Duration(seconds: 2));
-      
+
       if (mounted) {
         setState(() {
           _results = list;
@@ -49,11 +49,8 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
   Future<void> _initializeAndSearch() async {
     try {
       // Load data in parallel, not sequentially
-      await Future.wait([
-        loadAsistencias(),
-        loadProjectsAndWorkers(),
-      ]);
-      
+      await Future.wait([loadAsistencias(), loadProjectsAndWorkers()]);
+
       // After loading, perform search with current filters
       if (mounted) {
         await _search();
