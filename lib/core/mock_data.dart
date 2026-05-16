@@ -4,42 +4,164 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
-class RendicionItem {
+/// Representa una línea individual de gasto dentro de una rendición
+class RendicionLineItem {
   DateTime date;
   String description;
   double amount;
+  String category; // 'cargo' o 'viaticos'
 
-  /// Tipo de reembolso: 'asi', 'viaticos', 'otros', etc.
-  String type;
-
-  /// Estado: 'borrador', 'enviado', 'aprobado', 'rechazado'
-  String status;
-
-  /// Datos de factura
-  String invoiceNumber;
-  String supplier;
-  String? imageBase64; // Imagen en base64
-
-  RendicionItem(
+  RendicionLineItem(
     this.date,
     this.description,
     this.amount, {
-    this.type = 'otros',
-    this.status = 'borrador',
-    this.invoiceNumber = '',
-    this.supplier = '',
-    this.imageBase64,
+    this.category = '',
   });
 
   Map<String, dynamic> toJson() => {
     'date': date.toIso8601String(),
     'description': description,
     'amount': amount,
-    'type': type,
+    'category': category,
+  };
+
+  static RendicionLineItem fromJson(Map<String, dynamic> json) {
+    try {
+      return RendicionLineItem(
+        DateTime.parse(json['date'] as String),
+        json['description'] as String? ?? '',
+        (json['amount'] as num?)?.toDouble() ?? 0.0,
+        category: json['category'] as String? ?? '',
+      );
+    } catch (e) {
+      throw FormatException('Error parsing RendicionLineItem: $e');
+    }
+  }
+}
+
+/// Contenedor que agrupa múltiples líneas de rendición bajo un correlativo
+class RendicionContainer {
+  String correlative;
+  List<RendicionLineItem> items;
+  String category; // 'cargo' o 'viaticos' (del primer item)
+  DateTime dateCreated;
+
+  /// Estado del contenedor: 'borrador', 'enviado', 'aprobado', 'rechazado'
+  String status;
+
+  RendicionContainer({
+    required this.correlative,
+    this.items = const [],
+    this.category = '',
+    DateTime? dateCreated,
+    this.status = 'borrador',
+  }) : dateCreated = dateCreated ?? DateTime.now();
+
+  /// Monto total del contenedor
+  double get totalAmount => items.fold(0.0, (sum, item) => sum + item.amount);
+
+  /// Descripción resumida
+  String get description {
+    if (items.isEmpty) return 'Rendición $correlative';
+    if (items.length == 1) return items.first.description;
+    return '${items.first.description} +${items.length - 1} más';
+  }
+
+  /// Agregar un nuevo item
+  void addItem(RendicionLineItem item) {
+    if (items.isEmpty && category.isEmpty) {
+      category = item.category;
+    }
+    items.add(item);
+  }
+
+  /// Eliminar un item por índice
+  void removeItem(int index) {
+    if (index >= 0 && index < items.length) {
+      items.removeAt(index);
+    }
+  }
+
+  /// Serializar para persistencia
+  Map<String, dynamic> toJson() => {
+    'correlative': correlative,
+    'category': category,
+    'dateCreated': dateCreated.toIso8601String(),
     'status': status,
-    'invoiceNumber': invoiceNumber,
-    'supplier': supplier,
-    'imageBase64': imageBase64,
+    'items': items.map((item) => item.toJson()).toList(),
+  };
+
+  static RendicionContainer fromJson(Map<String, dynamic> json) {
+    try {
+      final itemsList =
+          (json['items'] as List?)
+              ?.map(
+                (item) =>
+                    RendicionLineItem.fromJson(item as Map<String, dynamic>),
+              )
+              .toList() ??
+          [];
+
+      return RendicionContainer(
+        correlative: json['correlative'] as String? ?? '',
+        items: itemsList,
+        category: json['category'] as String? ?? '',
+        dateCreated: json['dateCreated'] != null
+            ? DateTime.parse(json['dateCreated'] as String)
+            : DateTime.now(),
+        status: json['status'] as String? ?? 'borrador',
+      );
+    } catch (e) {
+      throw FormatException('Error parsing RendicionContainer: $e');
+    }
+  }
+
+  /// Compatibilidad con RendicionItem antiguo (para migración)
+  @Deprecated('Use fromContainer() instead')
+  static RendicionContainer fromLegacyItem(RendicionItem item) {
+    return RendicionContainer(
+      correlative: item.correlative,
+      items: [
+        RendicionLineItem(
+          item.date,
+          item.description,
+          item.amount,
+          category: item.category,
+        ),
+      ],
+      category: item.category,
+      dateCreated: item.date,
+      status: item.status,
+    );
+  }
+}
+
+/// Clase heredada para mantener compatibilidad transitoria
+@Deprecated('Use RendicionContainer and RendicionLineItem instead')
+class RendicionItem {
+  DateTime date;
+  String description;
+  double amount;
+  String correlative;
+  String category;
+  String status;
+
+  RendicionItem(
+    this.date,
+    this.description,
+    this.amount, {
+    this.correlative = '',
+    this.category = '',
+    this.status = 'borrador',
+  });
+
+  Map<String, dynamic> toJson() => {
+    'date': date.toIso8601String(),
+    'description': description,
+    'amount': amount,
+    'correlative': correlative,
+    'category': category,
+    'status': status,
   };
 
   static RendicionItem fromJson(Map<String, dynamic> json) {
@@ -48,11 +170,9 @@ class RendicionItem {
         DateTime.parse(json['date'] as String),
         json['description'] as String? ?? '',
         (json['amount'] as num?)?.toDouble() ?? 0.0,
-        type: json['type'] as String? ?? 'otros',
+        correlative: json['correlative'] as String? ?? '',
+        category: json['category'] as String? ?? '',
         status: json['status'] as String? ?? 'borrador',
-        invoiceNumber: json['invoiceNumber'] as String? ?? '',
-        supplier: json['supplier'] as String? ?? '',
-        imageBase64: json['imageBase64'] as String?,
       );
     } catch (e) {
       throw FormatException('Error parsing RendicionItem: $e');
@@ -158,7 +278,7 @@ class AsistenciaItem {
 
 // ==================== DATABASE MANAGEMENT ====================
 // Consolidated single database: dev_mobile.db
-// Version: 1 (for future migrations)
+// Version: 2 (for future migrations)
 
 Database? _dbInstance;
 bool _dbInitializing = false;
@@ -207,8 +327,9 @@ Future<Database> _openDb() async {
 
     _dbInstance = await openDatabase(
       pathDb,
-      version: 1,
+      version: 2,
       onCreate: _createSchema,
+      onUpgrade: _upgradeSchema,
       onOpen: _verifySchema,
     ).timeout(const Duration(seconds: 3));
 
@@ -229,11 +350,19 @@ Future<void> _createSchema(Database db, int version) async {
       date TEXT NOT NULL,
       description TEXT NOT NULL,
       amount REAL NOT NULL,
+      correlative TEXT,
       type TEXT NOT NULL,
       status TEXT NOT NULL,
       invoiceNumber TEXT,
       supplier TEXT,
       imageBase64 TEXT,
+      costCenter TEXT,
+      project TEXT,
+      origin TEXT,
+      destination TEXT,
+      startDate TEXT,
+      endDate TEXT,
+      travelType TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ''');
@@ -326,6 +455,12 @@ Future<void> _verifySchema(Database db) async {
   }
 }
 
+Future<void> _upgradeSchema(Database db, int oldVersion, int newVersion) async {
+  if (oldVersion < 2) {
+    await db.execute('ALTER TABLE rendiciones ADD COLUMN correlative TEXT');
+  }
+}
+
 Future<void> closeDatabase() async {
   if (_dbInstance != null) {
     await _dbInstance!.close();
@@ -335,7 +470,132 @@ Future<void> closeDatabase() async {
 
 // ==================== RENDICIONES PERSISTENCE ====================
 // Mock list (in-memory). Persistence via SQLite (sqflite).
+// Mantiene RendicionItem para compatibilidad, se agrupa en contenedores en UI
 List<RendicionItem> mockRendiciones = [];
+
+/// Agrupa items en contenedores por correlativo
+List<RendicionContainer> getRendicionContainers() {
+  final Map<String, List<RendicionItem>> grouped = {};
+
+  for (final item in mockRendiciones) {
+    final key = item.correlative.isEmpty ? 'new' : item.correlative;
+    grouped.putIfAbsent(key, () => []).add(item);
+  }
+
+  return grouped.entries
+      .map(
+        (entry) => RendicionContainer(
+          correlative: entry.key,
+          items: entry.value
+              .map(
+                (item) => RendicionLineItem(
+                  item.date,
+                  item.description,
+                  item.amount,
+                  category: item.category,
+                ),
+              )
+              .toList(),
+          category: entry.value.isNotEmpty ? entry.value.first.category : '',
+          dateCreated: entry.value.isNotEmpty
+              ? entry.value.first.date
+              : DateTime.now(),
+          status: entry.value.isNotEmpty
+              ? entry.value.first.status
+              : 'borrador',
+        ),
+      )
+      .toList()
+    ..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+}
+
+String _formatCorrelative(int value) => value.toString().padLeft(3, '0');
+
+bool _isValidCorrelative(String value) => RegExp(r'^\d{3}$').hasMatch(value);
+
+void _normalizeRendicionCorrelatives(List<RendicionItem> items) {
+  final used = <int>{};
+
+  for (final item in items) {
+    if (_isValidCorrelative(item.correlative)) {
+      used.add(int.parse(item.correlative));
+    }
+  }
+
+  var next = 0;
+  for (final item in items) {
+    if (_isValidCorrelative(item.correlative)) {
+      continue;
+    }
+
+    while (used.contains(next)) {
+      next++;
+    }
+
+    item.correlative = _formatCorrelative(next);
+    used.add(next);
+    next++;
+  }
+}
+
+String nextRendicionCorrelative() {
+  var maxValue = -1;
+  for (final item in mockRendiciones) {
+    if (_isValidCorrelative(item.correlative)) {
+      final value = int.parse(item.correlative);
+      if (value > maxValue) {
+        maxValue = value;
+      }
+    }
+  }
+
+  return _formatCorrelative(maxValue + 1);
+}
+
+List<RendicionItem> rendicionesByCorrelative(String correlative) {
+  return mockRendiciones
+      .where((item) => item.correlative == correlative)
+      .toList();
+}
+
+/// Obtener contenedor por correlativo
+RendicionContainer? getRendicionContainer(String correlative) {
+  final containers = getRendicionContainers();
+  try {
+    return containers.firstWhere((c) => c.correlative == correlative);
+  } catch (_) {
+    return null;
+  }
+}
+
+void updateRendicionesByCorrelative(String correlative, String status) {
+  for (final item in mockRendiciones) {
+    if (item.correlative == correlative) {
+      item.status = status;
+    }
+  }
+}
+
+/// Agregar un nuevo item a un contenedor existente
+void addItemToContainer(String correlative, RendicionLineItem lineItem) {
+  final newItem = RendicionItem(
+    lineItem.date,
+    lineItem.description,
+    lineItem.amount,
+    correlative: correlative,
+    category: lineItem.category,
+    status: 'borrador',
+  );
+  mockRendiciones.add(newItem);
+}
+
+/// Eliminar un item específico del contenedor
+void removeItemFromContainer(String correlative, int itemIndex) {
+  final items = rendicionesByCorrelative(correlative);
+  if (itemIndex >= 0 && itemIndex < items.length) {
+    mockRendiciones.remove(items[itemIndex]);
+  }
+}
 
 Future<void> saveRendiciones() async {
   // On web, there's no persistent database, so just skip
@@ -373,21 +633,20 @@ Future<void> loadRendiciones() async {
           DateTime.now().subtract(const Duration(days: 2)),
           'Compra de materiales',
           120.50,
-          type: 'asi',
+          correlative: '000',
+          category: 'cargo',
           status: 'aprobado',
-          invoiceNumber: '001-001-000123456',
-          supplier: 'Ferretería XYZ',
         ),
         RendicionItem(
           DateTime.now().subtract(const Duration(days: 1)),
           'Transporte',
           45.00,
-          type: 'viaticos',
+          correlative: '001',
+          category: 'viaticos',
           status: 'borrador',
-          invoiceNumber: '0010-000654321',
-          supplier: 'Taxi Plus',
         ),
       ];
+      _normalizeRendicionCorrelatives(mockRendiciones);
       await saveRendiciones();
       return;
     }
@@ -398,6 +657,8 @@ Future<void> loadRendiciones() async {
         throw FormatException('Invalid rendicion row: $r, error: $e');
       }
     }).toList();
+    _normalizeRendicionCorrelatives(mockRendiciones);
+    await saveRendiciones();
   } catch (e) {
     throw Exception('Error loading rendiciones: $e');
   }

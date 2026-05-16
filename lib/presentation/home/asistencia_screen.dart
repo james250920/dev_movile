@@ -3,7 +3,6 @@ import 'package:dev_mobile/presentation/home/asistencia_detail_screen.dart';
 import 'package:dev_mobile/presentation/home/projects_screen.dart';
 import 'package:dev_mobile/presentation/home/workers_screen.dart';
 import 'package:dev_mobile/presentation/home/attendance_history_screen.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
