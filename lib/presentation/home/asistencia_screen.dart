@@ -31,6 +31,8 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
       await Future.wait([
         loadAsistencias(),
         loadProjectsAndWorkers(),
+        loadImputacionesTiempo(),
+        loadTareos(),
       ]).timeout(const Duration(seconds: 3));
     } catch (e) {
       _loadError = 'Error al cargar asistencia. Se muestran datos locales.';
@@ -113,6 +115,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
     String selectedProject = employee.project.isNotEmpty
         ? employee.project
         : mockProjects.first;
+    double selectedHours = 8;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -176,7 +179,28 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                   ),
                   const SizedBox(height: 12),
                   const Text(
-                    'La ubicación está desactivada por ahora.',
+                    'Horas a imputar',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [4, 6, 8, 10, 12].map((hours) {
+                      final isSelected = selectedHours == hours.toDouble();
+                      return ChoiceChip(
+                        label: Text('${hours}h'),
+                        selected: isSelected,
+                        onSelected: (_) {
+                          setModalState(() {
+                            selectedHours = hours.toDouble();
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Al marcar asistencia se genera/actualiza el tareo diario automáticamente.',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
@@ -206,22 +230,26 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                                 });
                                 final now = DateTime.now();
 
-                                setState(() {
-                                  employee.present = true;
-                                  employee.project = selectedProject;
-                                  employee.checkInTime = now;
-                                  employee.latitude = null;
-                                  employee.longitude = null;
-                                  employee.locationLabel = 'Sin ubicación';
-                                });
-                                await saveAsistencias();
+                                await registrarAsistenciaConImputacion(
+                                  asistenciaIndex: index,
+                                  project: selectedProject,
+                                  horasTrabajadas: selectedHours,
+                                  checkInTime: now,
+                                  latitude: null,
+                                  longitude: null,
+                                  locationLabel: 'Sin ubicación',
+                                );
+
+                                if (mounted) {
+                                  setState(() {});
+                                }
 
                                 navigator.pop();
                                 if (!mounted) return;
                                 messenger.showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      'Asistencia registrada en $selectedProject',
+                                      'Asistencia registrada en $selectedProject ($selectedHours h imputadas)',
                                     ),
                                   ),
                                 );

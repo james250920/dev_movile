@@ -185,16 +185,22 @@ class TareoItem {
   String task;
   double hours;
   String project;
+  String workerName;
   String month; // format yyyy-MM
   double amount;
+  String status; // borrador | enviado | aprobado | rechazado
+  String source; // manual | asistencia
 
   TareoItem(
     this.date,
     this.task,
     this.hours, {
     this.project = '',
+    this.workerName = '',
     String? month,
     this.amount = 0.0,
+    this.status = 'borrador',
+    this.source = 'manual',
   }) : month =
            month ??
            '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
@@ -204,8 +210,11 @@ class TareoItem {
     'task': task,
     'hours': hours,
     'project': project,
+    'workerName': workerName,
     'month': month,
     'amount': amount,
+    'status': status,
+    'source': source,
   };
 
   static TareoItem fromJson(Map<String, dynamic> json) {
@@ -215,13 +224,71 @@ class TareoItem {
         json['task'] as String? ?? 'Sin tarea',
         (json['hours'] as num?)?.toDouble() ?? 0.0,
         project: json['project'] as String? ?? '',
+        workerName: json['workerName'] as String? ?? '',
         month: json['month'] as String?,
         amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+        status: json['status'] as String? ?? 'borrador',
+        source: json['source'] as String? ?? 'manual',
       );
     } catch (e) {
       throw FormatException('Error parsing TareoItem: $e');
     }
   }
+}
+
+class ImputacionTiempoItem {
+  DateTime date;
+  String workerName;
+  String project;
+  double hours;
+  String month;
+  String source;
+  String? locationLabel;
+
+  ImputacionTiempoItem({
+    required this.date,
+    required this.workerName,
+    required this.project,
+    required this.hours,
+    String? month,
+    this.source = 'asistencia',
+    this.locationLabel,
+  }) : month =
+           month ??
+           '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
+
+  Map<String, dynamic> toJson() => {
+    'date': date.toIso8601String(),
+    'workerName': workerName,
+    'project': project,
+    'hours': hours,
+    'month': month,
+    'source': source,
+    'locationLabel': locationLabel,
+  };
+
+  static ImputacionTiempoItem fromJson(Map<String, dynamic> json) {
+    return ImputacionTiempoItem(
+      date: DateTime.parse(json['date'] as String),
+      workerName: json['workerName'] as String? ?? 'Sin nombre',
+      project: json['project'] as String? ?? '',
+      hours: (json['hours'] as num?)?.toDouble() ?? 0.0,
+      month: json['month'] as String?,
+      source: json['source'] as String? ?? 'asistencia',
+      locationLabel: json['locationLabel'] as String?,
+    );
+  }
+}
+
+const Map<String, double> _tarifaHoraPorProyecto = {
+  'Proyecto Norte': 22.5,
+  'Obra Sur': 26.0,
+  'Mantenimiento Central': 20.0,
+  'Planta Este': 24.0,
+};
+
+double _getTarifaHoraProyecto(String project) {
+  return _tarifaHoraPorProyecto[project] ?? 21.0;
 }
 
 class AsistenciaItem {
@@ -278,7 +345,7 @@ class AsistenciaItem {
 
 // ==================== DATABASE MANAGEMENT ====================
 // Consolidated single database: dev_mobile.db
-// Version: 2 (for future migrations)
+// Version: 3 (imputacion de tiempo + campos extendidos de tareos)
 
 Database? _dbInstance;
 bool _dbInitializing = false;
@@ -327,7 +394,7 @@ Future<Database> _openDb() async {
 
     _dbInstance = await openDatabase(
       pathDb,
-      version: 2,
+      version: 3,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
       onOpen: _verifySchema,
@@ -374,8 +441,25 @@ Future<void> _createSchema(Database db, int version) async {
       task TEXT NOT NULL,
       hours REAL NOT NULL,
       project TEXT,
+      workerName TEXT,
       month TEXT NOT NULL,
       amount REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'borrador',
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS imputaciones_tiempo(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      workerName TEXT NOT NULL,
+      project TEXT NOT NULL,
+      hours REAL NOT NULL,
+      month TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'asistencia',
+      locationLabel TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ''');
@@ -433,6 +517,12 @@ Future<void> _createIndexes(Database db) async {
       'CREATE INDEX IF NOT EXISTS idx_tareos_month ON tareos(month)',
     );
     await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tareos_worker ON tareos(workerName)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tareos_source ON tareos(source)',
+    );
+    await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_asistencias_date ON asistencias(date DESC)',
     );
     await db.execute(
@@ -440,6 +530,15 @@ Future<void> _createIndexes(Database db) async {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_asistencias_project ON asistencias(project)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_imputaciones_month ON imputaciones_tiempo(month)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_imputaciones_worker ON imputaciones_tiempo(workerName)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_imputaciones_project ON imputaciones_tiempo(project)',
     );
   } catch (e) {
     // Indexes might already exist, that's fine
@@ -458,6 +557,36 @@ Future<void> _verifySchema(Database db) async {
 Future<void> _upgradeSchema(Database db, int oldVersion, int newVersion) async {
   if (oldVersion < 2) {
     await db.execute('ALTER TABLE rendiciones ADD COLUMN correlative TEXT');
+  }
+  if (oldVersion < 3) {
+    try {
+      await db.execute('ALTER TABLE tareos ADD COLUMN workerName TEXT');
+    } catch (_) {}
+    try {
+      await db.execute(
+        "ALTER TABLE tareos ADD COLUMN status TEXT NOT NULL DEFAULT 'borrador'",
+      );
+    } catch (_) {}
+    try {
+      await db.execute(
+        "ALTER TABLE tareos ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+      );
+    } catch (_) {}
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS imputaciones_tiempo(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        workerName TEXT NOT NULL,
+        project TEXT NOT NULL,
+        hours REAL NOT NULL,
+        month TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'asistencia',
+        locationLabel TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+    await _createIndexes(db);
   }
 }
 
@@ -670,6 +799,7 @@ final List<TareoItem> mockTareos = [
     DateTime.now(),
     'Inspección de equipo',
     2.5,
+    workerName: 'Juan Perez',
     project: 'Proyecto Norte',
     amount: 50.0,
   ),
@@ -677,10 +807,13 @@ final List<TareoItem> mockTareos = [
     DateTime.now(),
     'Instalación',
     4.0,
+    workerName: 'Carlos Ruiz',
     project: 'Obra Sur',
     amount: 120.0,
   ),
 ];
+
+final List<ImputacionTiempoItem> mockImputacionesTiempo = [];
 
 Future<void> saveTareos() async {
   // On web, there's no persistent database, so just skip
@@ -742,6 +875,192 @@ Future<void> loadTareos() async {
     // Keep existing mock data, don't throw
     return;
   }
+}
+
+Future<void> saveImputacionesTiempo() async {
+  if (kIsWeb) {
+    return;
+  }
+
+  try {
+    final db = await _openDb();
+    await db.transaction((txn) async {
+      await txn.delete('imputaciones_tiempo');
+      for (final item in mockImputacionesTiempo) {
+        await txn.insert(
+          'imputaciones_tiempo',
+          item.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  } catch (_) {
+    return;
+  }
+}
+
+Future<void> loadImputacionesTiempo() async {
+  if (kIsWeb) {
+    return;
+  }
+
+  try {
+    final db = await _openDb();
+    final rows = await db
+        .query('imputaciones_tiempo', orderBy: 'date DESC')
+        .timeout(const Duration(seconds: 3));
+
+    if (rows.isNotEmpty) {
+      final parsed = <ImputacionTiempoItem>[];
+      for (final row in rows) {
+        try {
+          parsed.add(ImputacionTiempoItem.fromJson(row));
+        } catch (_) {
+          continue;
+        }
+      }
+
+      mockImputacionesTiempo
+        ..clear()
+        ..addAll(parsed);
+    }
+  } catch (_) {
+    return;
+  }
+}
+
+Future<void> registrarAsistenciaConImputacion({
+  required int asistenciaIndex,
+  required String project,
+  required double horasTrabajadas,
+  DateTime? checkInTime,
+  double? latitude,
+  double? longitude,
+  String? locationLabel,
+}) async {
+  if (asistenciaIndex < 0 || asistenciaIndex >= mockAsistencias.length) {
+    return;
+  }
+
+  final empleado = mockAsistencias[asistenciaIndex];
+  final now = checkInTime ?? DateTime.now();
+  final horasNormalizadas = horasTrabajadas <= 0 ? 8.0 : horasTrabajadas;
+
+  empleado.present = true;
+  empleado.project = project;
+  empleado.checkInTime = now;
+  empleado.latitude = latitude;
+  empleado.longitude = longitude;
+  empleado.locationLabel = locationLabel ?? 'Sin ubicación';
+
+  final imputacion = ImputacionTiempoItem(
+    date: now,
+    workerName: empleado.name,
+    project: project,
+    hours: horasNormalizadas,
+    source: 'asistencia',
+    locationLabel: empleado.locationLabel,
+  );
+
+  final existingIndex = mockImputacionesTiempo.indexWhere((item) {
+    return item.workerName == imputacion.workerName &&
+        item.project == imputacion.project &&
+        item.date.year == imputacion.date.year &&
+        item.date.month == imputacion.date.month &&
+        item.date.day == imputacion.date.day;
+  });
+
+  if (existingIndex >= 0) {
+    mockImputacionesTiempo[existingIndex] = imputacion;
+  } else {
+    mockImputacionesTiempo.add(imputacion);
+  }
+
+  _upsertTareoDesdeImputacion(imputacion);
+  await Future.wait([
+    saveAsistencias(),
+    saveImputacionesTiempo(),
+    saveTareos(),
+  ]);
+}
+
+void _upsertTareoDesdeImputacion(ImputacionTiempoItem imputacion) {
+  final costo = imputacion.hours * _getTarifaHoraProyecto(imputacion.project);
+
+  final tareoIndex = mockTareos.indexWhere((t) {
+    return t.source == 'asistencia' &&
+        t.workerName == imputacion.workerName &&
+        t.project == imputacion.project &&
+        t.date.year == imputacion.date.year &&
+        t.date.month == imputacion.date.month &&
+        t.date.day == imputacion.date.day;
+  });
+
+  final nuevoTareo = TareoItem(
+    imputacion.date,
+    'Jornada operativa',
+    imputacion.hours,
+    workerName: imputacion.workerName,
+    project: imputacion.project,
+    month: imputacion.month,
+    amount: costo,
+    status: 'borrador',
+    source: 'asistencia',
+  );
+
+  if (tareoIndex >= 0) {
+    mockTareos[tareoIndex] = nuevoTareo;
+  } else {
+    mockTareos.add(nuevoTareo);
+  }
+}
+
+Future<void> regenerarTareosDesdeImputaciones({String? month}) async {
+  mockTareos.removeWhere((t) {
+    if (t.source != 'asistencia') {
+      return false;
+    }
+    if (month == null || month.isEmpty) {
+      return true;
+    }
+    return t.month == month;
+  });
+
+  for (final imputacion in mockImputacionesTiempo) {
+    if (month == null || month.isEmpty || imputacion.month == month) {
+      _upsertTareoDesdeImputacion(imputacion);
+    }
+  }
+
+  await saveTareos();
+}
+
+Map<String, dynamic> resumenMensualTareos(String month) {
+  final tareosMes = mockTareos.where((item) => item.month == month).toList();
+
+  final horasPorProyecto = <String, double>{};
+  final costoPorProyecto = <String, double>{};
+
+  for (final item in tareosMes) {
+    horasPorProyecto[item.project] =
+        (horasPorProyecto[item.project] ?? 0) + item.hours;
+    costoPorProyecto[item.project] =
+        (costoPorProyecto[item.project] ?? 0) + item.amount;
+  }
+
+  final totalHoras = tareosMes.fold<double>(0, (acc, item) => acc + item.hours);
+  final totalCosto = tareosMes.fold<double>(
+    0,
+    (acc, item) => acc + item.amount,
+  );
+
+  return {
+    'month': month,
+    'totalHoras': totalHoras,
+    'totalCosto': totalCosto,
+    'horasPorProyecto': horasPorProyecto,
+    'costoPorProyecto': costoPorProyecto,
+  };
 }
 
 // ==================== ASISTENCIAS PERSISTENCE ====================

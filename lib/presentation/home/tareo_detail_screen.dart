@@ -144,6 +144,17 @@ class TareoDetailScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _cambiarEstado(BuildContext context, String nuevoEstado) async {
+    tareo.status = nuevoEstado;
+    await saveTareos();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tareo marcado como $nuevoEstado')),
+      );
+    }
+    await onChanged();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -171,8 +182,14 @@ class TareoDetailScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   _row('Mes', tareo.month),
                   _row('Proyecto', tareo.project.isEmpty ? '-' : tareo.project),
+                  _row(
+                    'Trabajador',
+                    tareo.workerName.isEmpty ? '-' : tareo.workerName,
+                  ),
                   _row('Horas', '${tareo.hours} h'),
                   _row('Monto', '\$${tareo.amount.toStringAsFixed(2)}'),
+                  _row('Origen', tareo.source),
+                  _row('Estado', tareo.status),
                   _row(
                     'Fecha',
                     '${tareo.date.day}/${tareo.date.month}/${tareo.date.year}',
@@ -189,6 +206,35 @@ class TareoDetailScreen extends StatelessWidget {
               label: const Text('Editar tareo'),
               onPressed: () => _showEditDialog(context),
             ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('Enviar para aprobación'),
+              onPressed: () => _cambiarEstado(context, 'enviado'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Aprobar'),
+                  onPressed: () => _cambiarEstado(context, 'aprobado'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.cancel_outlined),
+                  label: const Text('Rechazar'),
+                  onPressed: () => _cambiarEstado(context, 'rechazado'),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           SizedBox(
