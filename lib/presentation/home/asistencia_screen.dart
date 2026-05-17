@@ -1,7 +1,4 @@
 import 'package:dev_mobile/core/mock_data.dart';
-import 'package:dev_mobile/presentation/home/asistencia_detail_screen.dart';
-import 'package:dev_mobile/presentation/home/projects_screen.dart';
-import 'package:dev_mobile/presentation/home/workers_screen.dart';
 import 'package:dev_mobile/presentation/home/attendance_history_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -14,20 +11,19 @@ class AsistenciaScreen extends StatefulWidget {
 }
 
 class _AsistenciaScreenState extends State<AsistenciaScreen> {
-  bool _isCapturingLocation = false;
+  bool _isMarking = false;
   bool _loadingData = true;
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    _loadAttendance();
+    _loadData();
   }
 
-  Future<void> _loadAttendance() async {
+  Future<void> _loadData() async {
     try {
       _loadError = null;
-      // Load both in parallel instead of sequentially
       await Future.wait([
         loadAsistencias(),
         loadProjectsAndWorkers(),
@@ -35,7 +31,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
         loadTareos(),
       ]).timeout(const Duration(seconds: 3));
     } catch (e) {
-      _loadError = 'Error al cargar asistencia. Se muestran datos locales.';
+      _loadError = 'Error al cargar asistencia.';
     } finally {
       if (mounted) {
         setState(() {
@@ -45,50 +41,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
     }
   }
 
-  // GPS deshabilitado temporalmente.
-  // Future<Position?> _getCurrentPosition() async => null;
-
-  void _applyQrCode(int index, String rawValue, StateSetter setModalState) {
-    final employee = mockAsistencias[index];
-    final normalized = rawValue.trim();
-    final lower = normalized.toLowerCase();
-
-    String? project;
-    String? employeeName;
-
-    if (lower.startsWith('project:')) {
-      project = normalized.substring(8).trim();
-    } else if (lower.startsWith('proyecto:')) {
-      project = normalized.substring(9).trim();
-    } else if (lower.startsWith('employee:')) {
-      employeeName = normalized.substring(9).trim();
-    } else if (lower.startsWith('empleado:')) {
-      employeeName = normalized.substring(9).trim();
-    } else if (mockProjects.contains(normalized)) {
-      project = normalized;
-    } else {
-      final existingEmployee = mockAsistencias.firstWhere(
-        (item) => item.name.toLowerCase() == lower,
-        orElse: () => employee,
-      );
-      if (existingEmployee.name.toLowerCase() == lower) {
-        employeeName = existingEmployee.name;
-      } else {
-        project = normalized;
-      }
-    }
-
-    setModalState(() {
-      if (project != null && project.isNotEmpty) {
-        employee.project = project;
-      }
-      if (employeeName != null && employeeName.isNotEmpty) {
-        employee.name = employeeName;
-      }
-    });
-  }
-
-  Future<void> _openQrScanner(int index, StateSetter setModalState) async {
+  Future<void> _openQrScanner(StateSetter setModalState) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -101,8 +54,23 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
               if (barcodes.isEmpty) return;
               final rawValue = barcodes.first.rawValue;
               if (rawValue == null || rawValue.isEmpty) return;
+
               Navigator.of(context).pop();
-              _applyQrCode(index, rawValue, setModalState);
+
+              String? project;
+              final normalized = rawValue.trim().toLowerCase();
+
+              if (normalized.startsWith('project:')) {
+                project = rawValue.substring(8).trim();
+              } else if (normalized.startsWith('proyecto:')) {
+                project = rawValue.substring(9).trim();
+              } else if (mockProjects.contains(rawValue)) {
+                project = rawValue;
+              }
+
+              if (project != null && project.isNotEmpty) {
+                setModalState(() {});
+              }
             },
           ),
         );
@@ -110,11 +78,10 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
     );
   }
 
-  Future<void> _openAttendanceForm(int index) async {
-    final employee = mockAsistencias[index];
-    String selectedProject = employee.project.isNotEmpty
-        ? employee.project
-        : mockProjects.first;
+  Future<void> _openMarkForm() async {
+    String selectedProject = mockProjects.isNotEmpty
+        ? mockProjects.first
+        : 'General';
     double selectedHours = 8;
 
     await showModalBottomSheet<void>(
@@ -138,7 +105,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                     children: [
                       const Expanded(
                         child: Text(
-                          'Registrar asistencia',
+                          'Marcar asistencia',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
@@ -147,13 +114,19 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                       ),
                       IconButton(
                         tooltip: 'Escanear QR',
-                        onPressed: () => _openQrScanner(index, setModalState),
+                        onPressed: () => _openQrScanner(setModalState),
                         icon: const Icon(Icons.qr_code_scanner),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(employee.name, style: const TextStyle(fontSize: 15)),
+                  Text(
+                    currentWorker,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     initialValue: selectedProject,
@@ -198,46 +171,42 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Al marcar asistencia se genera/actualiza el tareo diario automáticamente.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      icon: _isCapturingLocation
+                      icon: _isMarking
                           ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
                             )
-                          : const Icon(Icons.my_location),
+                          : const Icon(Icons.check_circle_outline),
                       label: Text(
-                        _isCapturingLocation
-                            ? 'Capturando ubicación...'
-                            : 'Marcar asistencia',
+                        _isMarking ? 'Registrando...' : 'Marcar asistencia',
                       ),
-                      onPressed: _isCapturingLocation
+                      onPressed: _isMarking
                           ? null
                           : () async {
                               final navigator = Navigator.of(context);
                               final messenger = ScaffoldMessenger.of(context);
                               try {
                                 setState(() {
-                                  _isCapturingLocation = true;
+                                  _isMarking = true;
                                 });
-                                final now = DateTime.now();
 
                                 await registrarAsistenciaConImputacion(
-                                  asistenciaIndex: index,
                                   project: selectedProject,
                                   horasTrabajadas: selectedHours,
-                                  checkInTime: now,
+                                  checkInTime: DateTime.now(),
                                   latitude: null,
                                   longitude: null,
-                                  locationLabel: 'Sin ubicación',
+                                  locationLabel: 'Marcado en sitio',
                                 );
 
                                 if (mounted) {
@@ -249,18 +218,19 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                                 messenger.showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      'Asistencia registrada en $selectedProject ($selectedHours h imputadas)',
+                                      'Asistencia registrada: $selectedProject ($selectedHours h)',
                                     ),
+                                    duration: const Duration(seconds: 2),
                                   ),
                                 );
                               } catch (e) {
                                 messenger.showSnackBar(
-                                  SnackBar(content: Text(e.toString())),
+                                  SnackBar(content: Text('Error: $e')),
                                 );
                               } finally {
                                 if (mounted) {
                                   setState(() {
-                                    _isCapturingLocation = false;
+                                    _isMarking = false;
                                   });
                                 }
                               }
@@ -276,125 +246,156 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
     );
   }
 
-  Widget _buildAttendanceCard(int index) {
-    final employee = mockAsistencias[index];
-    final isPresent = employee.present;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      elevation: 2,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => AsistenciaDetailScreen(
-                asistencia: employee,
-                onChanged: () async {
-                  setState(() {});
-                  await saveAsistencias();
-                },
-              ),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Mi asistencia')),
+      body: _loadingData
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    backgroundColor: isPresent
-                        ? Colors.green.shade100
-                        : Colors.grey.shade200,
-                    child: Icon(
-                      isPresent ? Icons.check : Icons.person,
-                      color: isPresent ? Colors.green : Colors.grey.shade700,
+                  if (_loadError != null) ...[
+                    Card(
+                      color: Colors.orange.shade50,
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.orange.shade700,
+                        ),
+                        title: const Text('Advertencia'),
+                        subtitle: Text(_loadError!),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  Text(
+                    'Trabajador: $currentWorker',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          employee.name,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                  const SizedBox(height: 16),
+                  _buildAsistenciaCard(),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.history),
+                      label: const Text('Ver historial'),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const AttendanceHistoryScreen(),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          isPresent
-                              ? 'Marcado para ${employee.project}'
-                              : 'Pendiente de marcaje',
-                          style: TextStyle(
-                            color: isPresent
-                                ? Colors.green.shade700
-                                : Colors.grey.shade700,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  ),
-                  Chip(
-                    label: Text(
-                      isPresent ? 'Presente' : 'Pendiente',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    backgroundColor: isPresent
-                        ? Colors.green.withAlpha((0.2 * 255).round())
-                        : Colors.grey.withAlpha((0.2 * 255).round()),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              if (isPresent) ...[
-                _buildInfoRow(Icons.work_outline, 'Proyecto', employee.project),
-                const SizedBox(height: 8),
-                _buildInfoRow(
-                  Icons.access_time,
-                  'Hora',
-                  employee.checkInTime == null
-                      ? '-'
-                      : '${employee.checkInTime!.hour.toString().padLeft(2, '0')}:${employee.checkInTime!.minute.toString().padLeft(2, '0')}',
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openMarkForm,
+        label: const Text('Marcar'),
+        icon: const Icon(Icons.add_circle_outline),
+      ),
+    );
+  }
+
+  Widget _buildAsistenciaCard() {
+    final asistencia = mockAsistenciasPersonal.isNotEmpty
+        ? mockAsistenciasPersonal.first
+        : null;
+    final isPresent = asistencia?.present ?? false;
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: isPresent
+                      ? Colors.green.shade100
+                      : Colors.grey.shade200,
+                  child: Icon(
+                    isPresent ? Icons.check : Icons.schedule,
+                    color: isPresent ? Colors.green : Colors.grey.shade700,
+                    size: 32,
+                  ),
                 ),
-                const SizedBox(height: 8),
-                _buildInfoRow(
-                  Icons.location_on_outlined,
-                  'Ubicación',
-                  employee.locationLabel ?? 'GPS capturado',
-                ),
-              ] else ...[
-                const Text(
-                  'Toca la tarjeta para registrar asistencia con proyecto y ubicación.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isPresent ? 'Presente' : 'Sin marcar hoy',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: isPresent
+                              ? Colors.green.shade700
+                              : Colors.grey.shade700,
+                        ),
+                      ),
+                      if (isPresent && asistencia != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          asistencia.project.isEmpty
+                              ? 'Proyecto no asignado'
+                              : asistencia.project,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.fact_check_outlined),
-                  label: Text(
-                    isPresent ? 'Actualizar marcaje' : 'Marcar asistencia',
-                  ),
-                  onPressed: () => _openAttendanceForm(index),
-                ),
+            ),
+            if (isPresent && asistencia != null) ...[
+              const SizedBox(height: 16),
+              Divider(),
+              const SizedBox(height: 12),
+              _infoRow(
+                Icons.work_outline,
+                'Proyecto',
+                asistencia.project.isEmpty ? '-' : asistencia.project,
+              ),
+              const SizedBox(height: 8),
+              _infoRow(
+                Icons.access_time,
+                'Hora',
+                asistencia.checkInTime == null
+                    ? '-'
+                    : '${asistencia.checkInTime!.hour.toString().padLeft(2, '0')}:${asistencia.checkInTime!.minute.toString().padLeft(2, '0')}',
+              ),
+              const SizedBox(height: 8),
+              _infoRow(
+                Icons.location_on_outlined,
+                'Ubicación',
+                asistencia.locationLabel ?? 'Sin ubicación',
               ),
             ],
-          ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
+  Widget _infoRow(IconData icon, String label, String value) {
     return Row(
       children: [
         Icon(icon, size: 18, color: Colors.grey.shade700),
@@ -402,146 +403,6 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
         Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
         Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
       ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Control de asistencia')),
-      body: _loadingData
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (_loadError != null)
-                  Card(
-                    color: Colors.orange.shade50,
-                    child: ListTile(
-                      leading: Icon(
-                        Icons.warning_amber_rounded,
-                        color: Colors.orange.shade700,
-                      ),
-                      title: const Text('Carga parcial de asistencia'),
-                      subtitle: Text(_loadError!),
-                      trailing: TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _loadingData = true;
-                          });
-                          _loadAttendance();
-                        },
-                        child: const Text('Reintentar'),
-                      ),
-                    ),
-                  ),
-                // Botones de filtro desplazables horizontalmente
-                SizedBox(
-                  height: 56,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.only(left: 4, right: 4),
-                    child: Row(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.list),
-                            label: const Text('Proyectos'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                            ),
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const ProjectsScreen(),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.group),
-                            label: const Text('Trabajadores'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                            ),
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WorkersScreen(),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.history),
-                            label: const Text('Historial'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                            ),
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const AttendanceHistoryScreen(),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.blue.shade100),
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Registro en sitio',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Marca tu asistencia, selecciona el proyecto y se guardará la hora con la ubicación GPS del dispositivo. También puedes usar QR para identificar el proyecto o el empleado más rápido.',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ...List.generate(mockAsistencias.length, _buildAttendanceCard),
-              ],
-            ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            mockAsistencias.add(
-              AsistenciaItem(DateTime.now(), 'Nuevo participante'),
-            );
-          });
-          saveAsistencias();
-        },
-        child: const Icon(Icons.person_add),
-      ),
     );
   }
 }

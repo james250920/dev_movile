@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:dev_mobile/domain/models/comprobante.dart';
 import 'package:dev_mobile/core/mock_data.dart';
 
 class RendicionDetailScreen extends StatefulWidget {
@@ -45,58 +49,94 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
     }
   }
 
-  void _selectCategory(String category) {
-    setState(() {
-      container.category = category;
-    });
-    saveRendiciones();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          category == 'cargo'
-              ? 'Se configuró como Cargo a rendir'
-              : 'Se configuró como Viáticos',
-        ),
-      ),
+  Future<void> _addCargoItem() async {
+    final newItem = await showDialog<RendicionLineItem>(
+      context: context,
+      builder: (context) => const _CargoItemDialog(),
     );
-  }
 
-  void _addNewItem() {
-    if (container.category.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Primero selecciona el tipo de rendición (Cargo/Viáticos)',
-          ),
-        ),
-      );
+    if (newItem == null) {
       return;
     }
 
-    showDialog<RendicionLineItem>(
-      context: context,
-      builder: (context) => _AddItemDialog(category: container.category),
-    ).then((newItem) {
-      if (newItem != null) {
-        setState(() {
-          container.addItem(newItem);
-          // También agregar a mockRendiciones para persistencia
-          final legacyItem = RendicionItem(
-            newItem.date,
-            newItem.description,
-            newItem.amount,
-            correlative: container.correlative,
-            category: newItem.category,
-            status: container.status,
-          );
-          mockRendiciones.add(legacyItem);
-        });
-        saveRendiciones();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Item agregado a la rendición')),
-        );
+    setState(() {
+      container.addItem(newItem);
+      if (container.category.isEmpty ||
+          container.category == newItem.category) {
+        container.category = newItem.category;
+      } else {
+        container.category = 'mixta';
       }
+
+      mockRendiciones.add(
+        RendicionItem(
+          newItem.date,
+          newItem.description,
+          newItem.amount,
+          correlative: container.correlative,
+          category: newItem.category,
+          status: container.status,
+          comprobanteType: newItem.comprobanteType,
+          invoiceNumber: newItem.invoiceNumber,
+          supplier: newItem.supplier,
+          ruc: newItem.ruc,
+          detail: newItem.detail,
+          imageBase64: newItem.imageBase64,
+        ),
+      );
     });
+
+    await saveRendiciones();
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cargo a rendir agregado')));
+    }
+  }
+
+  Future<void> _addViaticoItem() async {
+    final newItem = await showDialog<RendicionLineItem>(
+      context: context,
+      builder: (context) => const _ViaticoItemDialog(),
+    );
+
+    if (newItem == null) {
+      return;
+    }
+
+    setState(() {
+      container.addItem(newItem);
+      if (container.category.isEmpty ||
+          container.category == newItem.category) {
+        container.category = newItem.category;
+      } else {
+        container.category = 'mixta';
+      }
+
+      mockRendiciones.add(
+        RendicionItem(
+          newItem.date,
+          newItem.description,
+          newItem.amount,
+          correlative: container.correlative,
+          category: newItem.category,
+          status: container.status,
+          comprobanteType: newItem.comprobanteType,
+          invoiceNumber: newItem.invoiceNumber,
+          supplier: newItem.supplier,
+          ruc: newItem.ruc,
+          detail: newItem.detail,
+          imageBase64: newItem.imageBase64,
+        ),
+      );
+    });
+
+    await saveRendiciones();
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Viático agregado')));
+    }
   }
 
   void _removeItem(int index) {
@@ -129,6 +169,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
           mockRendiciones.removeWhere(
             (item) =>
                 item.correlative == container.correlative &&
+                item.date.isAtSameMomentAs(itemToRemove.date) &&
                 item.description == itemToRemove.description &&
                 item.amount == itemToRemove.amount,
           );
@@ -145,12 +186,8 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
   Widget build(BuildContext context) {
     final statusColor = _getStatusColor(container.status);
     final canAddItems = container.status == 'borrador';
-    final needsCategory =
-        container.status == 'borrador' && container.category.isEmpty;
     final canSend =
-        container.status == 'borrador' &&
-        container.category.isNotEmpty &&
-        container.items.isNotEmpty;
+        container.status == 'borrador' && container.items.isNotEmpty;
 
     return PopScope(
       canPop: false,
@@ -236,22 +273,20 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Selección de categoría si es necesaria
-              if (needsCategory) ...[
-                _buildCategoryPicker(),
+              if (canAddItems) ...[
+                _buildQuickAddButtons(canAddItems),
                 const SizedBox(height: 24),
               ],
 
-              // Items del contenedor
               if (container.items.isNotEmpty) ...[
                 _buildItemsSection(),
                 const SizedBox(height: 24),
-              ] else if (!needsCategory && container.status == 'borrador') ...[
+              ] else ...[
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Text(
-                      'No hay items. Agrega uno nuevo presionando el botón +',
+                      'No hay items. Usa los botones para agregar un cargo o un viático.',
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
                   ),
@@ -259,27 +294,20 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
                 const SizedBox(height: 24),
               ],
 
-              // Botones de acción
-              _buildActionButtons(canAddItems, canSend, needsCategory),
+              _buildActionButtons(canSend),
             ],
           ),
         ),
-        floatingActionButton: canAddItems && !needsCategory
-            ? FloatingActionButton(
-                onPressed: _addNewItem,
-                child: const Icon(Icons.add),
-              )
-            : null,
       ),
     );
   }
 
-  Widget _buildCategoryPicker() {
+  Widget _buildQuickAddButtons(bool canAddItems) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Selecciona el tipo de rendición',
+          'Agregar comprobantes',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -293,7 +321,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.account_balance_wallet),
                 label: const Text('Cargo a rendir'),
-                onPressed: () => _selectCategory('cargo'),
+                onPressed: canAddItems ? _addCargoItem : null,
               ),
             ),
             const SizedBox(width: 12),
@@ -301,7 +329,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.flight_takeoff),
                 label: const Text('Viáticos'),
-                onPressed: () => _selectCategory('viaticos'),
+                onPressed: canAddItems ? _addViaticoItem : null,
               ),
             ),
           ],
@@ -350,7 +378,9 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 6),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       Chip(
                         label: Text(
@@ -361,16 +391,56 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
                             ? Colors.blue.shade100
                             : Colors.orange.shade100,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${item.date.day}/${item.date.month}/${item.date.year}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey,
+                      if ((item.comprobanteType ?? '').isNotEmpty)
+                        Chip(
+                          label: Text(
+                            item.comprobanteType!.toUpperCase(),
+                            style: const TextStyle(fontSize: 11),
+                          ),
                         ),
-                      ),
+                      if (item.imageBase64 != null)
+                        const Chip(
+                          avatar: Icon(Icons.image, size: 16),
+                          label: Text(
+                            'Con imagen',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${item.date.day}/${item.date.month}/${item.date.year}',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  if ((item.invoiceNumber ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Comprobante: ${item.invoiceNumber}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                  if ((item.supplier ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Proveedor: ${item.supplier}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                  if ((item.ruc ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'RUC: ${item.ruc}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                  if ((item.detail ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Detalle: ${item.detail}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -406,7 +476,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
     );
   }
 
-  Widget _buildActionButtons(bool canAdd, bool canSend, bool needsCategory) {
+  Widget _buildActionButtons(bool canSend) {
     return Column(
       children: [
         if (canSend)
@@ -434,24 +504,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
               },
             ),
           )
-        else if (needsCategory)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue.shade200),
-            ),
-            child: Text(
-              'Selecciona el tipo de rendición para continuar.',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Colors.blue.shade900,
-              ),
-            ),
-          )
-        else if (!canAdd && container.status == 'enviado')
+        else if (container.status == 'enviado')
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
@@ -468,7 +521,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
               ),
             ),
           )
-        else if (!canAdd && container.status == 'aprobado')
+        else if (container.status == 'aprobado')
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -492,7 +545,7 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
               ],
             ),
           )
-        else if (!canAdd && container.status == 'rechazado')
+        else if (container.status == 'rechazado')
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -572,119 +625,467 @@ class _RendicionDetailScreenState extends State<RendicionDetailScreen> {
   }
 }
 
-// Diálogo para agregar nuevos items
-class _AddItemDialog extends StatefulWidget {
-  final String category;
+Future<String?> _pickImageBase64(ImageSource source) async {
+  final picker = ImagePicker();
+  final pickedFile = await picker.pickImage(source: source, imageQuality: 80);
+  if (pickedFile == null) {
+    return null;
+  }
 
-  const _AddItemDialog({required this.category});
-
-  @override
-  State<_AddItemDialog> createState() => _AddItemDialogState();
+  final bytes = await pickedFile.readAsBytes();
+  return base64Encode(bytes);
 }
 
-class _AddItemDialogState extends State<_AddItemDialog> {
-  late TextEditingController descriptionController;
-  late TextEditingController amountController;
-  late DateTime selectedDate;
+class _CargoItemDialog extends StatefulWidget {
+  const _CargoItemDialog();
+
+  @override
+  State<_CargoItemDialog> createState() => _CargoItemDialogState();
+}
+
+class _CargoItemDialogState extends State<_CargoItemDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _numeroController;
+  late final TextEditingController _rucController;
+  late final TextEditingController _proveedorController;
+  late final TextEditingController _detalleController;
+  late final TextEditingController _montoController;
+  late final TextEditingController _fechaController;
+  TipoComprobante _tipoComprobante = TipoComprobante.factura;
+  DateTime _selectedDate = DateTime.now();
+  String? _imageBase64;
 
   @override
   void initState() {
     super.initState();
-    descriptionController = TextEditingController();
-    amountController = TextEditingController();
-    selectedDate = DateTime.now();
+    _numeroController = TextEditingController();
+    _rucController = TextEditingController();
+    _proveedorController = TextEditingController();
+    _detalleController = TextEditingController();
+    _montoController = TextEditingController();
+    _fechaController = TextEditingController(
+      text: _selectedDate.toIso8601String().split('T').first,
+    );
   }
 
   @override
   void dispose() {
-    descriptionController.dispose();
-    amountController.dispose();
+    _numeroController.dispose();
+    _rucController.dispose();
+    _proveedorController.dispose();
+    _detalleController.dispose();
+    _montoController.dispose();
+    _fechaController.dispose();
     super.dispose();
+  }
+
+  Future<void> _setImage(ImageSource source) async {
+    final image = await _pickImageBase64(source);
+    if (image == null) {
+      return;
+    }
+
+    setState(() {
+      _imageBase64 = image;
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+        _fechaController.text = picked.toIso8601String().split('T').first;
+      });
+    }
+  }
+
+  void _save() {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
+    if (_imageBase64 == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Adjunta una imagen del comprobante')),
+      );
+      return;
+    }
+
+    final number = _numeroController.text.trim();
+    final supplier = _proveedorController.text.trim();
+    final amount = double.parse(_montoController.text.trim());
+    final detail = _detalleController.text.trim();
+
+    Navigator.of(context).pop(
+      RendicionLineItem(
+        _selectedDate,
+        '$supplier - $number',
+        amount,
+        category: 'cargo',
+        comprobanteType: _tipoComprobante.name,
+        invoiceNumber: number,
+        supplier: supplier,
+        ruc: _rucController.text.trim(),
+        detail: detail.isEmpty ? null : detail,
+        imageBase64: _imageBase64,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Agregar item a la rendición'),
+      title: const Text('Cargo a rendir'),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'Descripción',
-                hintText: 'Ej: Compra de materiales',
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _setImage(ImageSource.camera),
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Escanear factura/boleta'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _setImage(ImageSource.gallery),
+                      icon: const Icon(Icons.image_outlined),
+                      label: const Text('Cargar imagen'),
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: amountController,
-              decoration: const InputDecoration(
-                labelText: 'Monto',
-                hintText: '0.00',
-                prefixText: '\$ ',
+              const SizedBox(height: 12),
+              if (_imageBase64 != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Imagen adjunta',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<TipoComprobante>(
+                value: _tipoComprobante,
+                decoration: const InputDecoration(
+                  labelText: 'Tipo de comprobante',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: TipoComprobante.factura,
+                    child: Text('Factura'),
+                  ),
+                  DropdownMenuItem(
+                    value: TipoComprobante.boleta,
+                    child: Text('Boleta'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _tipoComprobante = value);
+                  }
+                },
               ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Fecha: ${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _numeroController,
+                decoration: const InputDecoration(
+                  labelText: 'Número de comprobante',
+                  border: OutlineInputBorder(),
                 ),
-                TextButton(
-                  onPressed: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: selectedDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime.now(),
-                    );
-                    if (picked != null) {
-                      setState(() => selectedDate = picked);
-                    }
-                  },
-                  child: const Text('Cambiar'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ingresa el número';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _rucController,
+                decoration: const InputDecoration(
+                  labelText: 'RUC',
+                  border: OutlineInputBorder(),
                 ),
-              ],
-            ),
-          ],
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ingresa el RUC';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _proveedorController,
+                decoration: const InputDecoration(
+                  labelText: 'Proveedor / Comercio',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ingresa el proveedor';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _detalleController,
+                decoration: const InputDecoration(
+                  labelText: 'Detalle',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _montoController,
+                decoration: const InputDecoration(
+                  labelText: 'Monto',
+                  border: OutlineInputBorder(),
+                  prefixText: 'S/. ',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ingresa el monto';
+                  }
+                  if (double.tryParse(value) == null) {
+                    return 'Monto inválido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _fechaController,
+                readOnly: true,
+                onTap: _pickDate,
+                decoration: const InputDecoration(
+                  labelText: 'Fecha',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_month),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancelar'),
         ),
-        ElevatedButton(
-          onPressed: () {
-            if (descriptionController.text.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Ingresa una descripción')),
-              );
-              return;
-            }
-            final amount = double.tryParse(amountController.text) ?? 0.0;
-            if (amount <= 0) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Ingresa un monto válido')),
-              );
-              return;
-            }
+        ElevatedButton(onPressed: _save, child: const Text('Guardar')),
+      ],
+    );
+  }
+}
 
-            final newItem = RendicionLineItem(
-              selectedDate,
-              descriptionController.text,
-              amount,
-              category: widget.category,
-            );
-            Navigator.pop(context, newItem);
-          },
-          child: const Text('Agregar'),
+class _ViaticoItemDialog extends StatefulWidget {
+  const _ViaticoItemDialog();
+
+  @override
+  State<_ViaticoItemDialog> createState() => _ViaticoItemDialogState();
+}
+
+class _ViaticoItemDialogState extends State<_ViaticoItemDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _detalleController;
+  late final TextEditingController _montoController;
+  late final TextEditingController _fechaController;
+  DateTime _selectedDate = DateTime.now();
+  String? _imageBase64;
+
+  @override
+  void initState() {
+    super.initState();
+    _detalleController = TextEditingController();
+    _montoController = TextEditingController();
+    _fechaController = TextEditingController(
+      text: _selectedDate.toIso8601String().split('T').first,
+    );
+  }
+
+  @override
+  void dispose() {
+    _detalleController.dispose();
+    _montoController.dispose();
+    _fechaController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _setImage(ImageSource source) async {
+    final image = await _pickImageBase64(source);
+    if (image == null) {
+      return;
+    }
+
+    setState(() {
+      _imageBase64 = image;
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+        _fechaController.text = picked.toIso8601String().split('T').first;
+      });
+    }
+  }
+
+  void _save() {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
+    if (_imageBase64 == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Adjunta una imagen del viático')),
+      );
+      return;
+    }
+
+    final detail = _detalleController.text.trim();
+    final amount = double.parse(_montoController.text.trim());
+
+    Navigator.of(context).pop(
+      RendicionLineItem(
+        _selectedDate,
+        detail,
+        amount,
+        category: 'viaticos',
+        detail: detail,
+        imageBase64: _imageBase64,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Viáticos'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _setImage(ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Escanear'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _setImage(ImageSource.gallery),
+                      icon: const Icon(Icons.image_outlined),
+                      label: const Text('Cargar imagen'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_imageBase64 != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Imagen adjunta',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _detalleController,
+                decoration: const InputDecoration(
+                  labelText: 'Detalle del viático',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ingresa el detalle';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _montoController,
+                decoration: const InputDecoration(
+                  labelText: 'Monto',
+                  border: OutlineInputBorder(),
+                  prefixText: 'S/. ',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ingresa el monto';
+                  }
+                  if (double.tryParse(value) == null) {
+                    return 'Monto inválido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _fechaController,
+                readOnly: true,
+                onTap: _pickDate,
+                decoration: const InputDecoration(
+                  labelText: 'Fecha',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_month),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(onPressed: _save, child: const Text('Guardar')),
       ],
     );
   }

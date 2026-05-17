@@ -14,9 +14,6 @@ class _TareosScreenState extends State<TareosScreen> {
   final _workerController = TextEditingController();
   final _hoursController = TextEditingController();
   final _amountController = TextEditingController();
-  String? _selectedProject;
-  String _selectedMonth =
-      '${DateTime.now().year.toString().padLeft(4, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}';
   bool _loading = true;
   String? _loadError;
 
@@ -26,15 +23,15 @@ class _TareosScreenState extends State<TareosScreen> {
     _loadTareosSafely();
   }
 
+  String get _currentMonth {
+    final now = DateTime.now();
+    return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _loadTareosSafely() async {
     try {
       _loadError = null;
       await Future.wait([loadTareos(), loadImputacionesTiempo()]);
-      if (mockTareos.isNotEmpty) {
-        _selectedProject = mockTareos.first.project.isNotEmpty
-            ? mockTareos.first.project
-            : _selectedProject;
-      }
     } catch (e) {
       _loadError = 'Error inesperado al cargar tareos. Se usan datos locales.';
     } finally {
@@ -55,27 +52,13 @@ class _TareosScreenState extends State<TareosScreen> {
     super.dispose();
   }
 
-  List<String> _last12Months() {
-    final now = DateTime.now();
-    return List.generate(12, (i) {
-      final d = DateTime(now.year, now.month - i, 1);
-      return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
-    });
-  }
-
-  List<TareoItem> _filteredTareos() {
-    return mockTareos.where((item) {
-      final byMonth = item.month == _selectedMonth;
-      final byProject = _selectedProject == null || _selectedProject!.isEmpty
-          ? true
-          : item.project == _selectedProject;
-      return byMonth && byProject;
-    }).toList()..sort((a, b) => b.date.compareTo(a.date));
+  List<TareoItem> _sortedTareos() {
+    return mockTareos.toList()..sort((a, b) => b.date.compareTo(a.date));
   }
 
   Future<void> _resyncFromAttendance() async {
     setState(() => _loading = true);
-    await regenerarTareosDesdeImputaciones(month: _selectedMonth);
+    await regenerarTareosDesdeImputaciones(month: _currentMonth);
     if (mounted) {
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -147,28 +130,7 @@ class _TareosScreenState extends State<TareosScreen> {
                   decoration: const InputDecoration(labelText: 'Proyecto'),
                 ),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: monthForDialog,
-                  items: _last12Months()
-                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) {
-                      setDialogState(() {
-                        monthForDialog = v;
-                      });
-                    }
-                  },
-                  decoration: const InputDecoration(labelText: 'Mes'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _amountController,
-                  decoration: const InputDecoration(labelText: 'Monto'),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                ),
+                
               ],
             ),
           ),
@@ -238,8 +200,8 @@ class _TareosScreenState extends State<TareosScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final filtered = _filteredTareos();
-    final resumen = resumenMensualTareos(_selectedMonth);
+    final tareos = _sortedTareos();
+    final resumen = resumenMensualTareos(_currentMonth);
 
     return Scaffold(
       appBar: AppBar(
@@ -254,58 +216,13 @@ class _TareosScreenState extends State<TareosScreen> {
       ),
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: filtered.length + (_loadError != null ? 2 : 1),
+        itemCount: tareos.length + (_loadError != null ? 2 : 1),
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (_, i) {
           if (i == 0) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _selectedMonth,
-                        items: _last12Months()
-                            .map(
-                              (m) => DropdownMenuItem(value: m, child: Text(m)),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _selectedMonth = value);
-                          }
-                        },
-                        decoration: const InputDecoration(labelText: 'Mes'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<String?>(
-                        initialValue: _selectedProject,
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('Todos'),
-                          ),
-                          ...mockProjects.map(
-                            (p) => DropdownMenuItem<String?>(
-                              value: p,
-                              child: Text(p),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setState(() => _selectedProject = value);
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Proyecto',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
                 Card(
                   color: Colors.blue.shade50,
                   child: ListTile(
@@ -341,7 +258,7 @@ class _TareosScreenState extends State<TareosScreen> {
           }
 
           final adjustedIndex = _loadError != null ? i - 2 : i - 1;
-          final t = filtered[adjustedIndex];
+          final t = tareos[adjustedIndex];
           final rawIndex = mockTareos.indexOf(t);
           return Card(
             child: ListTile(

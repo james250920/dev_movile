@@ -10,12 +10,24 @@ class RendicionLineItem {
   String description;
   double amount;
   String category; // 'cargo' o 'viaticos'
+  String? comprobanteType;
+  String? invoiceNumber;
+  String? supplier;
+  String? ruc;
+  String? detail;
+  String? imageBase64;
 
   RendicionLineItem(
     this.date,
     this.description,
     this.amount, {
     this.category = '',
+    this.comprobanteType,
+    this.invoiceNumber,
+    this.supplier,
+    this.ruc,
+    this.detail,
+    this.imageBase64,
   });
 
   Map<String, dynamic> toJson() => {
@@ -23,6 +35,12 @@ class RendicionLineItem {
     'description': description,
     'amount': amount,
     'category': category,
+    'comprobanteType': comprobanteType,
+    'invoiceNumber': invoiceNumber,
+    'supplier': supplier,
+    'ruc': ruc,
+    'detail': detail,
+    'imageBase64': imageBase64,
   };
 
   static RendicionLineItem fromJson(Map<String, dynamic> json) {
@@ -32,6 +50,12 @@ class RendicionLineItem {
         json['description'] as String? ?? '',
         (json['amount'] as num?)?.toDouble() ?? 0.0,
         category: json['category'] as String? ?? '',
+        comprobanteType: json['comprobanteType'] as String?,
+        invoiceNumber: json['invoiceNumber'] as String?,
+        supplier: json['supplier'] as String?,
+        ruc: json['ruc'] as String?,
+        detail: json['detail'] as String?,
+        imageBase64: json['imageBase64'] as String?,
       );
     } catch (e) {
       throw FormatException('Error parsing RendicionLineItem: $e');
@@ -145,6 +169,12 @@ class RendicionItem {
   String correlative;
   String category;
   String status;
+  String? comprobanteType;
+  String? invoiceNumber;
+  String? supplier;
+  String? ruc;
+  String? detail;
+  String? imageBase64;
 
   RendicionItem(
     this.date,
@@ -153,6 +183,12 @@ class RendicionItem {
     this.correlative = '',
     this.category = '',
     this.status = 'borrador',
+    this.comprobanteType,
+    this.invoiceNumber,
+    this.supplier,
+    this.ruc,
+    this.detail,
+    this.imageBase64,
   });
 
   Map<String, dynamic> toJson() => {
@@ -162,6 +198,12 @@ class RendicionItem {
     'correlative': correlative,
     'category': category,
     'status': status,
+    'comprobanteType': comprobanteType,
+    'invoiceNumber': invoiceNumber,
+    'supplier': supplier,
+    'ruc': ruc,
+    'detail': detail,
+    'imageBase64': imageBase64,
   };
 
   static RendicionItem fromJson(Map<String, dynamic> json) {
@@ -173,6 +215,12 @@ class RendicionItem {
         correlative: json['correlative'] as String? ?? '',
         category: json['category'] as String? ?? '',
         status: json['status'] as String? ?? 'borrador',
+        comprobanteType: json['comprobanteType'] as String?,
+        invoiceNumber: json['invoiceNumber'] as String?,
+        supplier: json['supplier'] as String?,
+        ruc: json['ruc'] as String?,
+        detail: json['detail'] as String?,
+        imageBase64: json['imageBase64'] as String?,
       );
     } catch (e) {
       throw FormatException('Error parsing RendicionItem: $e');
@@ -290,6 +338,9 @@ const Map<String, double> _tarifaHoraPorProyecto = {
 double _getTarifaHoraProyecto(String project) {
   return _tarifaHoraPorProyecto[project] ?? 21.0;
 }
+
+// ==================== USUARIO AUTENTICADO ====================
+String currentWorker = 'Juan Perez'; // Usuario autenticado actual
 
 class AsistenciaItem {
   final DateTime date;
@@ -622,6 +673,12 @@ List<RendicionContainer> getRendicionContainers() {
                   item.description,
                   item.amount,
                   category: item.category,
+                  comprobanteType: item.comprobanteType,
+                  invoiceNumber: item.invoiceNumber,
+                  supplier: item.supplier,
+                  ruc: item.ruc,
+                  detail: item.detail,
+                  imageBase64: item.imageBase64,
                 ),
               )
               .toList(),
@@ -714,6 +771,12 @@ void addItemToContainer(String correlative, RendicionLineItem lineItem) {
     correlative: correlative,
     category: lineItem.category,
     status: 'borrador',
+    comprobanteType: lineItem.comprobanteType,
+    invoiceNumber: lineItem.invoiceNumber,
+    supplier: lineItem.supplier,
+    ruc: lineItem.ruc,
+    detail: lineItem.detail,
+    imageBase64: lineItem.imageBase64,
   );
   mockRendiciones.add(newItem);
 }
@@ -765,6 +828,11 @@ Future<void> loadRendiciones() async {
           correlative: '000',
           category: 'cargo',
           status: 'aprobado',
+          comprobanteType: 'factura',
+          invoiceNumber: 'F001-123456',
+          supplier: 'Ferreteria Central',
+          ruc: '20123456789',
+          detail: 'Compra de materiales para obra',
         ),
         RendicionItem(
           DateTime.now().subtract(const Duration(days: 1)),
@@ -773,6 +841,7 @@ Future<void> loadRendiciones() async {
           correlative: '001',
           category: 'viaticos',
           status: 'borrador',
+          detail: 'Traslado a obra y retorno',
         ),
       ];
       _normalizeRendicionCorrelatives(mockRendiciones);
@@ -930,7 +999,6 @@ Future<void> loadImputacionesTiempo() async {
 }
 
 Future<void> registrarAsistenciaConImputacion({
-  required int asistenciaIndex,
   required String project,
   required double horasTrabajadas,
   DateTime? checkInTime,
@@ -938,11 +1006,15 @@ Future<void> registrarAsistenciaConImputacion({
   double? longitude,
   String? locationLabel,
 }) async {
-  if (asistenciaIndex < 0 || asistenciaIndex >= mockAsistencias.length) {
-    return;
+  // Registrar asistencia para el usuario actual
+  var empleado = mockAsistenciasPersonal.isNotEmpty
+      ? mockAsistenciasPersonal.first
+      : AsistenciaItem(DateTime.now(), currentWorker, present: false);
+
+  if (mockAsistenciasPersonal.isEmpty) {
+    mockAsistenciasPersonal.add(empleado);
   }
 
-  final empleado = mockAsistencias[asistenciaIndex];
   final now = checkInTime ?? DateTime.now();
   final horasNormalizadas = horasTrabajadas <= 0 ? 8.0 : horasTrabajadas;
 
@@ -955,7 +1027,7 @@ Future<void> registrarAsistenciaConImputacion({
 
   final imputacion = ImputacionTiempoItem(
     date: now,
-    workerName: empleado.name,
+    workerName: currentWorker,
     project: project,
     hours: horasNormalizadas,
     source: 'asistencia',
@@ -1064,32 +1136,13 @@ Map<String, dynamic> resumenMensualTareos(String month) {
 }
 
 // ==================== ASISTENCIAS PERSISTENCE ====================
-final List<AsistenciaItem> mockAsistencias = [
-  AsistenciaItem(
-    DateTime.now(),
-    'Juan Perez',
-    present: true,
-    project: 'Proyecto Norte',
-    checkInTime: DateTime.now().subtract(const Duration(hours: 1)),
-    latitude: -12.0464,
-    longitude: -77.0428,
-    locationLabel: 'Oficina central',
-  ),
-  AsistenciaItem(DateTime.now(), 'María López', present: false),
-  AsistenciaItem(
-    DateTime.now(),
-    'Carlos Ruiz',
-    present: true,
-    project: 'Obra Sur',
-    checkInTime: DateTime.now().subtract(const Duration(minutes: 45)),
-    latitude: -12.055,
-    longitude: -77.03,
-    locationLabel: 'Frente de obra',
-  ),
-];
+// Historial de asistencias del usuario autenticado
+final List<AsistenciaItem> mockAsistenciasPersonal = [];
+
+// Legacy: para compatibilidad con obtenerAsistenciasFiltradas
+final List<AsistenciaItem> mockAsistencias = [];
 
 Future<void> saveAsistencias() async {
-  // On web, there's no persistent database, so just skip
   if (kIsWeb) {
     return;
   }
@@ -1098,7 +1151,7 @@ Future<void> saveAsistencias() async {
     final db = await _openDb();
     await db.transaction((txn) async {
       await txn.delete('asistencias');
-      for (final a in mockAsistencias) {
+      for (final a in mockAsistenciasPersonal) {
         await txn.insert(
           'asistencias',
           a.toJson(),
@@ -1107,45 +1160,43 @@ Future<void> saveAsistencias() async {
       }
     });
   } catch (e) {
-    // Silently ignore save errors on non-web platforms
     return;
   }
 }
 
 Future<void> loadAsistencias() async {
+  if (kIsWeb) {
+    return;
+  }
+
   try {
     final db = await _openDb();
     final rows = await db
         .query('asistencias', orderBy: 'date DESC')
         .timeout(const Duration(seconds: 3));
+
     if (rows.isEmpty) {
-      // If no data in DB, save defaults and return
       try {
         await saveAsistencias();
-      } catch (_) {
-        // Ignore save errors on first load
-      }
+      } catch (_) {}
       return;
     }
 
-    // Parse rows with validation
     final parsedItems = <AsistenciaItem>[];
     for (final row in rows) {
       try {
         parsedItems.add(AsistenciaItem.fromJson(row));
       } catch (e) {
-        // Skip invalid rows
         continue;
       }
     }
 
     if (parsedItems.isNotEmpty) {
-      mockAsistencias
+      mockAsistenciasPersonal
         ..clear()
         ..addAll(parsedItems);
     }
   } catch (e) {
-    // Keep existing mock data, don't throw
     return;
   }
 }
@@ -1154,37 +1205,9 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
   DateTime? date,
   String? project,
 }) async {
+  // Filtrar solo el historial del usuario actual
   try {
-    // On web, skip database and filter in-memory directly
-    if (kIsWeb) {
-      return mockAsistencias.where((a) {
-        var ok = true;
-        if (project != null && project.isNotEmpty) {
-          ok = ok && a.project == project;
-        }
-        if (date != null) {
-          ok =
-              ok &&
-              a.date.year == date.year &&
-              a.date.month == date.month &&
-              a.date.day == date.day;
-        }
-        return ok;
-      }).toList();
-    }
-
-    final db = await _openDb();
-    final rows = await db
-        .query('asistencias', orderBy: 'date DESC')
-        .timeout(const Duration(seconds: 3));
-    final list = rows.map((r) {
-      try {
-        return AsistenciaItem.fromJson(r);
-      } catch (e) {
-        throw FormatException('Invalid asistencia in filter: $r, error: $e');
-      }
-    }).toList();
-    return list.where((a) {
+    return mockAsistenciasPersonal.where((a) {
       var ok = true;
       if (project != null && project.isNotEmpty) {
         ok = ok && a.project == project;
@@ -1199,21 +1222,7 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
       return ok;
     }).toList();
   } catch (e) {
-    // Fall back to in-memory filtering if database fails
-    return mockAsistencias.where((a) {
-      var ok = true;
-      if (project != null && project.isNotEmpty) {
-        ok = ok && a.project == project;
-      }
-      if (date != null) {
-        ok =
-            ok &&
-            a.date.year == date.year &&
-            a.date.month == date.month &&
-            a.date.day == date.day;
-      }
-      return ok;
-    }).toList();
+    return [];
   }
 }
 
