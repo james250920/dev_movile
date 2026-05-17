@@ -348,9 +348,13 @@ class AsistenciaItem {
   bool present;
   String project;
   DateTime? checkInTime;
+  DateTime? checkOutTime;
   double? latitude;
   double? longitude;
+  double? checkOutLatitude;
+  double? checkOutLongitude;
   String? locationLabel;
+  String? checkOutLocationLabel;
 
   AsistenciaItem(
     this.date,
@@ -358,9 +362,13 @@ class AsistenciaItem {
     this.present = false,
     this.project = '',
     this.checkInTime,
+    this.checkOutTime,
     this.latitude,
     this.longitude,
+    this.checkOutLatitude,
+    this.checkOutLongitude,
     this.locationLabel,
+    this.checkOutLocationLabel,
   });
 
   Map<String, dynamic> toJson() => {
@@ -369,9 +377,13 @@ class AsistenciaItem {
     'present': present ? 1 : 0,
     'project': project,
     'checkInTime': checkInTime?.toIso8601String(),
+    'checkOutTime': checkOutTime?.toIso8601String(),
     'latitude': latitude,
     'longitude': longitude,
+    'checkOutLatitude': checkOutLatitude,
+    'checkOutLongitude': checkOutLongitude,
     'locationLabel': locationLabel,
+    'checkOutLocationLabel': checkOutLocationLabel,
   };
 
   static AsistenciaItem fromJson(Map<String, dynamic> json) {
@@ -384,9 +396,15 @@ class AsistenciaItem {
         checkInTime: json['checkInTime'] == null
             ? null
             : DateTime.parse(json['checkInTime'] as String),
+        checkOutTime: json['checkOutTime'] == null
+            ? null
+            : DateTime.parse(json['checkOutTime'] as String),
         latitude: (json['latitude'] as num?)?.toDouble(),
         longitude: (json['longitude'] as num?)?.toDouble(),
+        checkOutLatitude: (json['checkOutLatitude'] as num?)?.toDouble(),
+        checkOutLongitude: (json['checkOutLongitude'] as num?)?.toDouble(),
         locationLabel: json['locationLabel'] as String?,
+        checkOutLocationLabel: json['checkOutLocationLabel'] as String?,
       );
     } catch (e) {
       throw FormatException('Error parsing AsistenciaItem: $e');
@@ -445,7 +463,7 @@ Future<Database> _openDb() async {
 
     _dbInstance = await openDatabase(
       pathDb,
-      version: 3,
+      version: 4,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
       onOpen: _verifySchema,
@@ -523,9 +541,13 @@ Future<void> _createSchema(Database db, int version) async {
       present INTEGER NOT NULL,
       project TEXT,
       checkInTime TEXT,
+      checkOutTime TEXT,
       latitude REAL,
       longitude REAL,
+      checkOutLatitude REAL,
+      checkOutLongitude REAL,
       locationLabel TEXT,
+      checkOutLocationLabel TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ''');
@@ -637,6 +659,27 @@ Future<void> _upgradeSchema(Database db, int oldVersion, int newVersion) async {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     ''');
+    await _createIndexes(db);
+  }
+  if (oldVersion < 4) {
+    try {
+      await db.execute('ALTER TABLE asistencias ADD COLUMN checkOutTime TEXT');
+    } catch (_) {}
+    try {
+      await db.execute(
+        'ALTER TABLE asistencias ADD COLUMN checkOutLatitude REAL',
+      );
+    } catch (_) {}
+    try {
+      await db.execute(
+        'ALTER TABLE asistencias ADD COLUMN checkOutLongitude REAL',
+      );
+    } catch (_) {}
+    try {
+      await db.execute(
+        'ALTER TABLE asistencias ADD COLUMN checkOutLocationLabel TEXT',
+      );
+    } catch (_) {}
     await _createIndexes(db);
   }
 }
@@ -866,19 +909,30 @@ Future<void> loadRendiciones() async {
 final List<TareoItem> mockTareos = [
   TareoItem(
     DateTime.now(),
-    'Inspección de equipo',
-    2.5,
-    workerName: 'Juan Perez',
+    'Inspección de seguridad',
+    8.0,
+    workerName: '',
     project: 'Proyecto Norte',
-    amount: 50.0,
+    amount: 0.0,
+    source: 'empresa',
   ),
   TareoItem(
     DateTime.now(),
-    'Instalación',
-    4.0,
-    workerName: 'Carlos Ruiz',
+    'Mantenimiento preventivo',
+    8.0,
+    workerName: '',
     project: 'Obra Sur',
-    amount: 120.0,
+    amount: 0.0,
+    source: 'empresa',
+  ),
+  TareoItem(
+    DateTime.now(),
+    'Supervisión de obra',
+    8.0,
+    workerName: '',
+    project: 'Mantenimiento Central',
+    amount: 0.0,
+    source: 'empresa',
   ),
 ];
 
@@ -1013,6 +1067,11 @@ Future<void> registrarAsistenciaConImputacion({
 
   if (mockAsistenciasPersonal.isEmpty) {
     mockAsistenciasPersonal.add(empleado);
+  } else {
+    // Ensure only the most recent mark is shown as current
+    mockAsistenciasPersonal
+      ..clear()
+      ..add(empleado);
   }
 
   final now = checkInTime ?? DateTime.now();
@@ -1054,6 +1113,54 @@ Future<void> registrarAsistenciaConImputacion({
     saveImputacionesTiempo(),
     saveTareos(),
   ]);
+}
+
+Future<void> registrarSalidaAsistencia({
+  DateTime? checkOutTime,
+  double? latitude,
+  double? longitude,
+  String? locationLabel,
+}) async {
+  // Registrar salida para el usuario actual
+  var empleado = mockAsistenciasPersonal.isNotEmpty
+      ? mockAsistenciasPersonal.first
+      : AsistenciaItem(DateTime.now(), currentWorker, present: false);
+
+  if (mockAsistenciasPersonal.isEmpty) {
+    mockAsistenciasPersonal.add(empleado);
+  }
+
+  final now = checkOutTime ?? DateTime.now();
+
+  empleado.present = false;
+  empleado.checkOutTime = now;
+  empleado.checkOutLatitude = latitude;
+  empleado.checkOutLongitude = longitude;
+  empleado.checkOutLocationLabel = locationLabel ?? 'Sin ubicación';
+  // Move the completed attendance to history
+  try {
+    final historial = AsistenciaItem(
+      empleado.date,
+      empleado.name,
+      present: false,
+      project: empleado.project,
+      checkInTime: empleado.checkInTime,
+      checkOutTime: empleado.checkOutTime,
+      latitude: empleado.latitude,
+      longitude: empleado.longitude,
+      checkOutLatitude: empleado.checkOutLatitude,
+      checkOutLongitude: empleado.checkOutLongitude,
+      locationLabel: empleado.locationLabel,
+      checkOutLocationLabel: empleado.checkOutLocationLabel,
+    );
+
+    mockAsistencias.add(historial);
+  } catch (_) {}
+
+  // Clear current personal attendance
+  mockAsistenciasPersonal.clear();
+
+  await saveAsistencias();
 }
 
 void _upsertTareoDesdeImputacion(ImputacionTiempoItem imputacion) {
@@ -1207,7 +1314,11 @@ Future<List<AsistenciaItem>> getAsistenciasFiltered({
 }) async {
   // Filtrar solo el historial del usuario actual
   try {
-    return mockAsistenciasPersonal.where((a) {
+    final combined = <AsistenciaItem>[];
+    combined.addAll(mockAsistencias);
+    combined.addAll(mockAsistenciasPersonal);
+
+    return combined.where((a) {
       var ok = true;
       if (project != null && project.isNotEmpty) {
         ok = ok && a.project == project;
@@ -1248,7 +1359,6 @@ final List<String> mockProjects = [
   'Proyecto Norte',
   'Obra Sur',
   'Mantenimiento Central',
-  'Planta Este',
 ];
 
 List<WorkerItem> mockWorkers = [

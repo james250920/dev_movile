@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dev_mobile/core/mock_data.dart';
+import 'package:dev_mobile/presentation/home/asistencia_screen.dart';
 import 'package:dev_mobile/presentation/home/tareo_detail_screen.dart';
 
 class TareosScreen extends StatefulWidget {
@@ -130,7 +131,6 @@ class _TareosScreenState extends State<TareosScreen> {
                   decoration: const InputDecoration(labelText: 'Proyecto'),
                 ),
                 const SizedBox(height: 8),
-                
               ],
             ),
           ),
@@ -298,29 +298,60 @@ class _TareosScreenState extends State<TareosScreen> {
                 ],
               ),
               onTap: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => TareoDetailScreen(
-                      tareo: t,
-                      index: rawIndex,
-                      onChanged: () async {
-                        if (mounted) {
-                          setState(() {});
-                        }
-                      },
-                    ),
+                final shouldMark = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text('Tareo: ${t.task}'),
+                    content: Text('Proyecto: ${t.project}\nHoras: ${t.hours}'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: const Text('Cancelar'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(context).pop(true),
+                        child: const Text('Marcar asistencia'),
+                      ),
+                    ],
                   ),
                 );
-                if (mounted) setState(() {});
+
+                if (shouldMark == true) {
+                  try {
+                    await registrarAsistenciaConImputacion(
+                      project: t.project,
+                      horasTrabajadas: t.hours > 0 ? t.hours : 8.0,
+                      checkInTime: DateTime.now(),
+                      latitude: null,
+                      longitude: null,
+                      locationLabel: 'Marcado desde tareo',
+                    );
+                    if (mounted) setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Asistencia marcada para ${t.project}'),
+                      ),
+                    );
+                    if (context.mounted) {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AsistenciaScreen(),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error al marcar: $e')),
+                    );
+                  }
+                }
               },
             ),
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showTareoDialog(),
-        child: const Icon(Icons.add),
-      ),
+      // No permitir crear tareos manualmente desde esta vista; son provistos por la empresa
+      floatingActionButton: null,
     );
   }
 }

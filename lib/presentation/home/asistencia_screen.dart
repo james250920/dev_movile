@@ -41,8 +41,8 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
     }
   }
 
-  Future<void> _openQrScanner(StateSetter setModalState) async {
-    await showModalBottomSheet<void>(
+  Future<String?> _openQrScanner() async {
+    return showModalBottomSheet<String?>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
@@ -54,8 +54,6 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
               if (barcodes.isEmpty) return;
               final rawValue = barcodes.first.rawValue;
               if (rawValue == null || rawValue.isEmpty) return;
-
-              Navigator.of(context).pop();
 
               String? project;
               final normalized = rawValue.trim().toLowerCase();
@@ -69,7 +67,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
               }
 
               if (project != null && project.isNotEmpty) {
-                setModalState(() {});
+                Navigator.of(context).pop(project);
               }
             },
           ),
@@ -79,9 +77,7 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
   }
 
   Future<void> _openMarkForm() async {
-    String selectedProject = mockProjects.isNotEmpty
-        ? mockProjects.first
-        : 'General';
+    String selectedProject = '';
     double selectedHours = 8;
 
     await showModalBottomSheet<void>(
@@ -114,7 +110,12 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                       ),
                       IconButton(
                         tooltip: 'Escanear QR',
-                        onPressed: () => _openQrScanner(setModalState),
+                        onPressed: () async {
+                          final scanned = await _openQrScanner();
+                          if (scanned != null && scanned.isNotEmpty) {
+                            setModalState(() => selectedProject = scanned);
+                          }
+                        },
                         icon: const Icon(Icons.qr_code_scanner),
                       ),
                     ],
@@ -128,27 +129,21 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  const SizedBox(height: 4),
                   DropdownButtonFormField<String>(
-                    initialValue: selectedProject,
+                    value: selectedProject.isNotEmpty
+                        ? selectedProject
+                        : (mockProjects.isNotEmpty ? mockProjects.first : null),
                     items: mockProjects
-                        .map(
-                          (project) => DropdownMenuItem(
-                            value: project,
-                            child: Text(project),
-                          ),
-                        )
+                        .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                         .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setModalState(() {
-                          selectedProject = value;
-                        });
-                      }
-                    },
                     decoration: const InputDecoration(
                       labelText: 'Proyecto',
                       border: OutlineInputBorder(),
                     ),
+                    onChanged: (v) {
+                      if (v != null) setModalState(() => selectedProject = v);
+                    },
                   ),
                   const SizedBox(height: 12),
                   const Text(
@@ -365,7 +360,49 @@ class _AsistenciaScreenState extends State<AsistenciaScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
             if (isPresent && asistencia != null) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Marcar salida'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                  ),
+                  onPressed: () async {
+                    final navigator = Navigator.of(context);
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      setState(() {
+                        _isMarking = true;
+                      });
+
+                      await registrarSalidaAsistencia(
+                        checkOutTime: DateTime.now(),
+                        latitude: null,
+                        longitude: null,
+                        locationLabel: 'Salida registrada',
+                      );
+
+                      if (mounted) setState(() {});
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Salida registrada')),
+                      );
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('Error: $e')),
+                      );
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          _isMarking = false;
+                        });
+                      }
+                    }
+                  },
+                ),
+              ),
               const SizedBox(height: 16),
               Divider(),
               const SizedBox(height: 12),

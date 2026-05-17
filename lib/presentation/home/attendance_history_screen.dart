@@ -12,7 +12,6 @@ class AttendanceHistoryScreen extends StatefulWidget {
 
 class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
   DateTime? _selectedDate;
-  String? _selectedProject;
   List<AsistenciaItem> _results = [];
   bool _loading = false;
 
@@ -21,7 +20,6 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
       setState(() => _loading = true);
       final list = await getAsistenciasFiltered(
         date: _selectedDate,
-        project: _selectedProject,
       ).timeout(const Duration(seconds: 2));
 
       if (mounted) {
@@ -49,7 +47,8 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
   Future<void> _initializeAndSearch() async {
     try {
       // Load data in parallel, not sequentially
-      await Future.wait([loadAsistencias(), loadProjectsAndWorkers()]);
+      // Only load asistencias here to speed up this screen
+      await loadAsistencias();
 
       // After loading, perform search with current filters
       if (mounted) {
@@ -96,29 +95,6 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<String?>(
-                    initialValue: _selectedProject,
-                    items:
-                        <DropdownMenuItem<String?>>[
-                              const DropdownMenuItem<String?>(
-                                value: null,
-                                child: Text('Todos'),
-                              ),
-                            ]
-                            .followedBy(
-                              mockProjects.map(
-                                (p) => DropdownMenuItem<String?>(
-                                  value: p,
-                                  child: Text(p),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (v) => setState(() => _selectedProject = v),
-                    decoration: const InputDecoration(labelText: 'Proyecto'),
-                  ),
-                ),
                 const SizedBox(width: 8),
                 ElevatedButton(onPressed: _search, child: const Text('Buscar')),
               ],
